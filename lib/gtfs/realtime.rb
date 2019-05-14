@@ -125,6 +125,10 @@ module GTFS
       end
 
       def refresh_realtime_feed!(config_name)
+
+        start_time = Time.now
+        puts "Starting GTFS-RT refresh at #{start_time}."
+
         config = GTFS::Realtime::Configuration.find_by(name: config_name)
         feeds = {trip_updates_feed: get_feed(config.trip_updates_feed), vehicle_positions_feed: get_feed(config.vehicle_positions_feed), service_alerts_feed: get_feed(config.service_alerts_feed)}
         trip_updates = feeds[:trip_updates_feed].try(:entity) || []
@@ -173,8 +177,23 @@ module GTFS
               end
             )
 
-            all_new_stop_time_updates = []
-            trip_updates.each do |trip_update|
+            all_new_stop_time_updates = new_trip_updates.collect do |trip_update|
+               trip_update.trip_update.stop_time_update.collect do |stop_time_update|
+                 {
+                     configuration_id: config.id,
+                     interval_seconds: config.interval_seconds,
+                     trip_update_id: trip_update.id.strip,
+                     stop_id: stop_time_update.stop_id.strip,
+                     arrival_delay: stop_time_update.arrival&.delay,
+                     arrival_time: (stop_time_update.arrival&.time&.> 0) ? Time.at(stop_time_update.arrival.time) : nil,
+                     departure_delay: stop_time_update.departure&.delay,
+                     departure_time: (stop_time_update.departure&.time&.> 0) ? Time.at(stop_time_update.departure.time) : nil,
+                     feed_timestamp: current_feed_time
+                 }
+               end
+            end.flatten
+
+            (trip_updates - new_trip_updates).each do |trip_update|
 
               prev_stop_time_updates = GTFS::Realtime::StopTimeUpdate.from_partition(config.id, current_feed_time.at_beginning_of_week).where(feed_timestamp: previous_feed_time, trip_update_id: trip_update.id)
 
@@ -193,14 +212,15 @@ module GTFS
                         arrival_time: (stop_time_update.arrival&.time&.> 0) ? Time.at(stop_time_update.arrival.time) : nil,
                         departure_delay: stop_time_update.departure&.delay,
                         departure_time: (stop_time_update.departure&.time&.> 0) ? Time.at(stop_time_update.departure.time) : nil,
-                        feed_timestamp: Time.at(trip_updates_header.timestamp)
+                        feed_timestamp: current_feed_time
                     }
                   end
 
               updated_stop_time_updates = (stop_time_updates - new_stop_time_updates)
-              prev_stop_time_updates_to_check = prev_stop_time_updates.where(stop_id: updated_stop_time_updates.collect{|s| s.stop_id.strip}).order(:arrival_time)
+              prev_stop_time_updates_to_check = prev_stop_time_updates.where('stop_id IN (?)', updated_stop_time_updates.collect{|s| s.stop_id.strip}).order(:arrival_time)
 
-              all_new_stop_time_updates += updated_stop_time_updates.each_with_index.select{ |update, idx| Time.at(update.arrival.time) != prev_stop_time_updates_to_check[idx].arrival_time}.collect do |stop_time_update|
+              all_new_stop_time_updates += updated_stop_time_updates.each_with_index.select{ |update, idx| ((update.arrival&.time&.> 0) ? Time.at(update.arrival.time) : nil) != prev_stop_time_updates_to_check[idx].arrival_time}.collect do |stop_time_update|
+                stop_time_update = stop_time_update[0]
                 {
                     configuration_id: config.id,
                     interval_seconds: config.interval_seconds,
@@ -210,7 +230,7 @@ module GTFS
                     arrival_time: (stop_time_update.arrival&.time&.> 0) ? Time.at(stop_time_update.arrival.time) : nil,
                     departure_delay: stop_time_update.departure&.delay,
                     departure_time: (stop_time_update.departure&.time&.> 0) ? Time.at(stop_time_update.departure.time) : nil,
-                    feed_timestamp: Time.at(trip_updates_header.timestamp)
+                    feed_timestamp: current_feed_time
                 }
               end
             end
@@ -230,7 +250,7 @@ module GTFS
                 longitude: vehicle.vehicle.position.longitude.to_f,
                 bearing: vehicle.vehicle.position.bearing.to_f,
                 timestamp: Time.at(vehicle.vehicle.timestamp),
-                feed_timestamp: Time.at(vehicle_positions_header.timestamp)
+                feed_timestamp: current_feed_time
               }
             end
           )
@@ -245,11 +265,13 @@ module GTFS
                 description_text: service_alert.alert.description_text.translation.first.text,
                 start_time: Time.at(service_alert.alert.active_period.first.start),
                 end_time: Time.at(service_alert.alert.active_period.first.end),
-                feed_timestamp: Time.at(service_alerts_header.timestamp)
+                feed_timestamp: current_feed_time
               }
             end
           )
         end
+
+        puts "Finished GTFS-RT refresh at #{Time.now}. Took #{Time.now - start_time} seconds."
       end
 
       private
