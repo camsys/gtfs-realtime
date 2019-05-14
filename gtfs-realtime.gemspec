@@ -32,4 +32,6 @@ Gem::Specification.new do |spec|
   spec.add_dependency "protobuf", "< 3.7"
   spec.add_dependency "activerecord"
   spec.add_dependency "bulk_insert"
+
+  spec.add_dependency "partitioned"
 end

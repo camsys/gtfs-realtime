@@ -1,5 +1,14 @@
 class CreateGtfsTables < ActiveRecord::Migration[5.0]
   def change
+    create_table :gtfs_realtime_configurations do |t|
+      t.string :name
+      t.string :static_feed
+      t.string :trip_updates_feed
+      t.string :vehicle_positions_feed
+      t.string :service_alerts_feed
+      t.integer :interval_seconds
+    end
+
     create_table :gtfs_realtime_calendar_dates, id: false do |t|
       t.string :service_id, index: true
       t.date :date
@@ -47,12 +56,18 @@ class CreateGtfsTables < ActiveRecord::Migration[5.0]
     change_column :gtfs_realtime_trips, :id, :string
 
     create_table :gtfs_realtime_trip_updates do |t|
+      t.integer :configuration_id, index: true
+      t.timestamp :feed_timestamp
+      t.integer :interval_seconds
       t.string :trip_id
       t.string :route_id
     end
     change_column :gtfs_realtime_trip_updates, :id, :string
 
     create_table :gtfs_realtime_stop_time_updates, id: false do |t|
+      t.integer :configuration_id, index: true
+      t.timestamp :feed_timestamp
+      t.integer :interval_seconds
       t.string :trip_update_id, index: true
       t.string :stop_id, index: true
       t.integer :arrival_delay
@@ -62,6 +77,9 @@ class CreateGtfsTables < ActiveRecord::Migration[5.0]
     end
 
     create_table :gtfs_realtime_vehicle_positions, id: false do |t|
+      t.integer :configuration_id, index: true
+      t.timestamp :feed_timestamp
+      t.integer :interval_seconds
       t.string :trip_id, index: true
       t.string :stop_id, index: true
       t.float :latitude
@@ -71,6 +89,9 @@ class CreateGtfsTables < ActiveRecord::Migration[5.0]
     end
 
     create_table :gtfs_realtime_service_alerts, id: false do |t|
+      t.integer :configuration_id, index: true
+      t.timestamp :feed_timestamp
+      t.integer :interval_seconds
       t.string :stop_id, index: true
       t.string :header_text
       t.text :description_text
