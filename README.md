@@ -1,82 +1,46 @@
-# gtfs-realtime [![Build Status](https://travis-ci.org/rofreg/gtfs-realtime.svg?branch=master)](https://travis-ci.org/rofreg/gtfs-realtime)
+# gtfs-realtime
 
-gfts-realtime is a gem to interact with realtime transit data presented in the [GTFS Realtime format](https://developers.google.com/transit/gtfs-realtime/). It was built in order to interact with the RIPTA realtime data API for the public bus system in Providence, RI.
+[]gfts-realtime](https://github.com/rofreg/gtfs-realtime) is a gem to interact with realtime transit data presented in the [GTFS Realtime format](https://developers.google.com/transit/gtfs-realtime/). It was built in order to interact with the RIPTA realtime data API for the public bus system in Providence, RI.
+
+This gem has been forked by Cambridge Systematics and updated to archive realtime transit data rather than just getting the latest feed. It saves the data into a partitioned postgres database.
 
 ## Installation
 
-Add this line to your application's Gemfile:
-
+Add to your application's Gemfile:
 ```ruby
-gem 'gtfs-realtime'
+gem 'bulk_data_methods', github: 'AirHelp/bulk_data_methods', branch: 'rails5'
+gem 'partitioned', github: 'AirHelp/partitioned', branch: 'rails-5-1'
+gem 'gtfs-realtime', path: '../gtfs-realtime'
+
+gem 'whenever', require: false
 ```
 
-And then execute:
-
-    $ bundle
-
-Or install it yourself as:
-
-    $ gem install gtfs-realtime
-
-## Usage
-
-Basic functionality currently works like this:
-
+Add your feeds:
+```ruby
+GTFS::Realtime::configure([{name: 'feed_name', trip_updates_feed: 'xxx', vehicle_positions_feed: 'xxx', service_alerts_feed: 'xxx', interval_seconds: '###'}])
 ```
-require 'gtfs-realtime'
 
-GTFS::Realtime.configure do |config|
-  config.static_feed = "http://www.ripta.com/googledata/current/google_transit.zip"   # File path or URL
-  config.trip_updates_feed = "http://realtime.ripta.com:81/api/tripupdates"
-  config.vehicle_positions_feed = "http://realtime.ripta.com:81/api/vehiclepositions"
-  config.service_alerts_feed = "http://realtime.ripta.com:81/api/servicealerts"
-  config.database_url = "sqlite3:////Users/rofreg/database.db"
-  # leave database_url unset to use your existing ActiveRecord DB, or
-  # set it to `nil` to use an in-memory SQLite database
-end
+where you pass to `configure` an array of hashes for all your feeds
+* feed_name - some identifier of this feed such as "Subway", "Buses", "Elevators"
+* xxx - URL of feed
+* interval seconds - how often you ping the URL to pull latest feed data, in seconds
 
-# After calling 'configure', the gem loads all relevant GTFS info into a database.
-# This may take some time (up to a minute) depending on the size of the input data.
-# By default, gtfs-realtime uses an in-memory database, which requires reloading all
-# data from scratch on each launch. If you'd like to use a persistent database instead,
-# set 'config.database_url' above, and include a scheme/protocol path for the DB type
-# that you would like to use. gtfs-realtime will generate the relevant tables.
+You can re-run `configure` as many times as you want to add new feeds. TODO: currently, you cannot delete feeds.
 
-@nearby = GTFS::Realtime::Stop.nearby(41.834521, -71.396906)
-@nearby.each do |stop|
-  puts stop.name
-  puts "-----"
-
-  # load all stop times for today, including updated live information
-  stop.stop_times_for_today.each do |st|
-    trip = st.trip
-    route = trip.route
-    shapes = shapes
-    puts "#{st.scheduled_departure_time}: [#{route.short_name}] #{trip.headsign}"
-
-    if st.live?
-      delay = st.actual_departure_delay / 60
-      delay_string = case
-        when delay < 0
-          "#{delay.abs} minute(s) early"
-        when delay > 0
-          "#{delay} minute(s) late"
-        else
-          "on time"
-        end
-
-      puts "- expected at #{st.departure_time}, #{delay_string}" if st.live?
-    end
+In your application, Add your whenever config to refresh the realtime feed every ### seconds and save to the database:
+```ruby
+GTFS::Realtime::Configuration.all.each do |config|
+  every config.interval_seconds.seconds do # 1.minute 1.day 1.week 1.month 1.year is also supported
+    runner "GTFS::Realtime.refresh_realtime_feed!(#{config.name})"
   end
-  puts "\n"
 end
-
-# refresh realtime info
-GTFS::Realtime.refresh_realtime_feed!
-
-# refresh static info
-GTFS::Realtime.load_static_feed!(force: true)
 ```
+Note: if you don't ping your feed in the same interval as you config you can't reconstruct as it happened.
+
+## Limitations
+
+* Partitions are not configurable. All realtime tables are partitioned by feed, and a week of data.
+* Only partitions for the weeks of 2019 are currently supported. IMPORTANT TO DO
 
 ## Development
 
@@ -86,7 +50,7 @@ To install this gem onto your local machine, run `bundle exec rake install`. To 
 
 ## Contributing
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/rofreg/gtfs-realtime. This project is intended to be a safe, welcoming space for collaboration, and contributors are expected to adhere to the [Contributor Covenant](http://contributor-covenant.org) code of conduct.
+Bug reports and pull requests are welcome on GitHub at https://github.com/camsys/gtfs-realtime. This project is intended to be a safe, welcoming space for collaboration, and contributors are expected to adhere to the [Contributor Covenant](http://contributor-covenant.org) code of conduct.
 
 ## License
 

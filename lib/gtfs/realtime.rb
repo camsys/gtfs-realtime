@@ -30,8 +30,10 @@ module GTFS
     # This is a singleton object, so everything will be on the class level
     class << self
 
+      # save in-memory the last feed processed
       attr_accessor :previous_feeds
 
+      # this method is run to add feeds
       def configure(new_configurations=[])
         run_migrations
 
@@ -40,6 +42,7 @@ module GTFS
         end
       end
 
+      # this method currently does not work
       def load_static_feed!(force: false)
         return if !force && GTFS::Realtime::Route.count > 0
 
@@ -121,16 +124,20 @@ module GTFS
             end
           )
         end
-
-        # create partition tables for TripUpdate which is partitioned by Route
-        GTFS::Realtime::TripUpdate.create_new_partition_tables(GTFS::Realtime::Route.distinct.map(&:id).map(&:downcase))
       end
 
+      #
+      # This method queries the feed URL to get the latest GTFS-RT data and saves it to the database
+      # It can be run manually or on a schedule
+      #
+      # @param [String] config_name name of feed saved in the configuration
+      #
       def refresh_realtime_feed!(config_name)
 
         start_time = Time.now
         puts "Starting GTFS-RT refresh at #{start_time}."
 
+        # pull trip update, vehicle position, and service alerts entries and header data
         config = GTFS::Realtime::Configuration.find_by(name: config_name)
         feeds = {trip_updates_feed: get_feed(config.trip_updates_feed), vehicle_positions_feed: get_feed(config.vehicle_positions_feed), service_alerts_feed: get_feed(config.service_alerts_feed)}
         trip_updates = feeds[:trip_updates_feed].try(:entity) || []
@@ -141,28 +148,24 @@ module GTFS
         service_alerts_header = feeds[:service_alerts_feed].try(:header)
 
 
-
-        # assumption:
+        # (Simple) Logic to pulling feed data:
+        #
+        # Assuming:
         # Feed A at 12:00
         # Feed B at 12:01
         #
-        # pseudo when B is pulled:
-        # order A & B trip_updates by trip_id
-        # add in all rows for B.trip_updates.trip_id - A.trip_updates.trip_id
-        # for all rows in B not added in:
-        #                                 order A & B stop time updates by arrival_time
-        # add in all rows B.stop_time_updates - A.stop_time_updates
-        # for all rows in B not added in:
-        #                                 compare corresponding A row & B
-
-
+        # When B is pulled, get B - A. Add all rows of B - A as that is all new data
+        # With all remaining rows of B (ie. B-(B-A)), iterate through (ordering where relevant) and check for changes. If row of B != row of A, add row of B to database.
+        #
         GTFS::Realtime::Model.transaction do
 
+          # get the feed time of the last feed processed
           previous_feed_time = Time.at(@previous_feeds[config.name][:trip_updates_feed].header.timestamp) unless @previous_feeds.nil? || @previous_feeds[config.name][:trip_updates_feed].nil?
+
+          # get the feed time of the feed being processed currently
           current_feed_time = Time.at(trip_updates_header.timestamp) unless trip_updates_header.nil?
 
-
-
+          # if no feed has ever been processed, this is the first time its being saved so save all rows
           if previous_feed_time.nil?
             GTFS::Realtime::TripUpdate.create_many(
                 trip_updates.collect do |trip_update|
@@ -194,9 +197,16 @@ module GTFS
                  end
                end.flatten
             )
-          elsif current_feed_time && previous_feed_time != current_feed_time
-            prev_trip_updates = @previous_feeds[config.name][:trip_updates_feed].entity
 
+          # ensure you have feed data
+          # then confirm the data is new.
+          # if the previous_feed_time and current_feed_time are the same we can assume the feed data has not changed and therefore has already been processed
+          elsif current_feed_time && previous_feed_time != current_feed_time
+
+            # In a trip update, for a trip_id, the route_id will not change
+            # so we only need to look for new trip updates that weren't in the previously processed feed
+            # and add them and their corresponding stop updates
+            prev_trip_updates = @previous_feeds[config.name][:trip_updates_feed].entity
             new_trip_ids = trip_updates.map{|x| x.trip_update.trip.trip_id.strip} - prev_trip_updates.map{|x| x.trip_update.trip.trip_id.strip}
             new_trip_updates = trip_updates.select{|x| new_trip_ids.include? x.trip_update.trip.trip_id.strip}
 
@@ -213,6 +223,7 @@ module GTFS
                 end
             )
 
+            # store all new stop updates in an array to be added at once for performance
             all_new_stop_time_updates = new_trip_updates.collect do |trip_update|
               trip_update.trip_update.stop_time_update.collect do |stop_time_update|
                 {
@@ -229,12 +240,12 @@ module GTFS
               end
             end.flatten
 
+            # For all other trip updates, check stop updates for changes
             (trip_updates - new_trip_updates).each do |trip_update|
 
+              # get all new stop time updates that weren't in previously processed feed
               prev_stop_time_updates = @previous_feeds[config.name][:trip_updates_feed].entity.find{|x| x.trip_update.trip.trip_id.strip == trip_update.id}.trip_update.stop_time_update.sort_by { |x| x.arrival&.time || 0 }
-
               stop_time_updates = trip_update.trip_update.stop_time_update.sort_by { |x| x.arrival&.time || 0 }
-
               new_arrival_times = stop_time_updates.map{|x| x.arrival&.time} - prev_stop_time_updates.map{|x| x.arrival&.time}
               new_stop_time_updates = stop_time_updates.select{|x| new_arrival_times.include? x.arrival&.time}
 
@@ -253,6 +264,8 @@ module GTFS
                     }
                   end
 
+              # for all other stop updates, order both previous stop time update data and current data then compare arrival_time
+              # if different, get changed stop time updates
               updated_stop_time_updates = (stop_time_updates - new_stop_time_updates)
               stop_ids = stop_time_updates.map{|x| x.stop_id.strip} & prev_stop_time_updates.map{|x| x.stop_id.strip}
               prev_stop_time_updates_to_check = prev_stop_time_updates.select{|x| stop_ids.include? x.stop_id.strip}
@@ -273,11 +286,11 @@ module GTFS
               end
             end
 
-            GTFS::Realtime::StopTimeUpdate.create_many(all_new_stop_time_updates)
+            GTFS::Realtime::StopTimeUpdate.create_many(all_new_stop_time_updates) # save stop time updates to database
 
           end
 
-
+          # this data is partitioned but not checked for duplicates currently
           GTFS::Realtime::VehiclePosition.create_many(
             vehicle_positions.collect do |vehicle|
               {
@@ -294,6 +307,7 @@ module GTFS
             end
           )
 
+          # this data is partitioned but not checked for duplicates currently
           GTFS::Realtime::ServiceAlert.create_many(
             service_alerts.collect do |service_alert|
               {
