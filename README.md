@@ -1,6 +1,6 @@
 # gtfs-realtime
 
-[]gfts-realtime](https://github.com/rofreg/gtfs-realtime) is a gem to interact with realtime transit data presented in the [GTFS Realtime format](https://developers.google.com/transit/gtfs-realtime/). It was built in order to interact with the RIPTA realtime data API for the public bus system in Providence, RI.
+[gfts-realtime](https://github.com/rofreg/gtfs-realtime) is a gem to interact with realtime transit data presented in the [GTFS Realtime format](https://developers.google.com/transit/gtfs-realtime/). It was built in order to interact with the RIPTA realtime data API for the public bus system in Providence, RI.
 
 This gem has been forked by Cambridge Systematics and updated to archive realtime transit data rather than just getting the latest feed. It saves the data into a partitioned postgres database.
 
