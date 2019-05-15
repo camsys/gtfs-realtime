@@ -30,6 +30,8 @@ module GTFS
     # This is a singleton object, so everything will be on the class level
     class << self
 
+      attr_accessor :previous_feeds
+
       def configure(new_configurations=[])
         run_migrations
 
@@ -156,50 +158,85 @@ module GTFS
 
         GTFS::Realtime::Model.transaction do
 
-          previous_feed_time = GTFS::Realtime::TripUpdate.order(feed_timestamp: :desc).first.feed_timestamp
-          current_feed_time = Time.at(trip_updates_header.timestamp)
+          previous_feed_time = Time.at(@previous_feeds[config.name][:trip_updates_feed].header.timestamp) unless @previous_feeds.nil? || @previous_feeds[config.name][:trip_updates_feed].nil?
+          current_feed_time = Time.at(trip_updates_header.timestamp) unless trip_updates_header.nil?
 
-          if  previous_feed_time != current_feed_time
 
-            prev_trip_updates = GTFS::Realtime::TripUpdate.from_partition(config.id, current_feed_time.at_beginning_of_week).where(feed_timestamp: previous_feed_time)
 
-            new_trip_updates = trip_updates.select{|t| !(prev_trip_updates.pluck(:trip_id).include? t.trip_update.trip.trip_id.strip)}
+          if previous_feed_time.nil?
             GTFS::Realtime::TripUpdate.create_many(
-              new_trip_updates.collect do |trip_update|
-                {
-                    configuration_id: config.id,
-                    interval_seconds: config.interval_seconds,
-                    id: trip_update.id.strip,
-                    trip_id: trip_update.trip_update.trip.trip_id.strip,
-                    route_id: trip_update.trip_update.trip.route_id.strip,
-                    feed_timestamp: current_feed_time
-                }
-              end
+                trip_updates.collect do |trip_update|
+                  {
+                      configuration_id: config.id,
+                      interval_seconds: config.interval_seconds,
+                      id: trip_update.id.strip,
+                      trip_id: trip_update.trip_update.trip.trip_id.strip,
+                      route_id: trip_update.trip_update.trip.route_id.strip,
+                      feed_timestamp: current_feed_time
+                  }
+                end
+            )
+
+            GTFS::Realtime::StopTimeUpdate.create_many(
+               trip_updates.collect do |trip_update|
+                 trip_update.trip_update.stop_time_update.collect do |stop_time_update|
+                   {
+                       configuration_id: config.id,
+                       interval_seconds: config.interval_seconds,
+                       trip_update_id: trip_update.id.strip,
+                       stop_id: stop_time_update.stop_id.strip,
+                       arrival_delay: stop_time_update.arrival&.delay,
+                       arrival_time: (stop_time_update.arrival&.time&.> 0) ? Time.at(stop_time_update.arrival.time) : nil,
+                       departure_delay: stop_time_update.departure&.delay,
+                       departure_time: (stop_time_update.departure&.time&.> 0) ? Time.at(stop_time_update.departure.time) : nil,
+                       feed_timestamp: current_feed_time
+                   }
+                 end
+               end.flatten
+            )
+          elsif current_feed_time && previous_feed_time != current_feed_time
+            prev_trip_updates = @previous_feeds[config.name][:trip_updates_feed].entity
+
+            new_trip_ids = trip_updates.map{|x| x.trip_update.trip.trip_id.strip} - prev_trip_updates.map{|x| x.trip_update.trip.trip_id.strip}
+            new_trip_updates = trip_updates.select{|x| new_trip_ids.include? x.trip_update.trip.trip_id.strip}
+
+            GTFS::Realtime::TripUpdate.create_many(
+                new_trip_updates.collect do |trip_update|
+                  {
+                      configuration_id: config.id,
+                      interval_seconds: config.interval_seconds,
+                      id: trip_update.id.strip,
+                      trip_id: trip_update.trip_update.trip.trip_id.strip,
+                      route_id: trip_update.trip_update.trip.route_id.strip,
+                      feed_timestamp: current_feed_time
+                  }
+                end
             )
 
             all_new_stop_time_updates = new_trip_updates.collect do |trip_update|
-               trip_update.trip_update.stop_time_update.collect do |stop_time_update|
-                 {
-                     configuration_id: config.id,
-                     interval_seconds: config.interval_seconds,
-                     trip_update_id: trip_update.id.strip,
-                     stop_id: stop_time_update.stop_id.strip,
-                     arrival_delay: stop_time_update.arrival&.delay,
-                     arrival_time: (stop_time_update.arrival&.time&.> 0) ? Time.at(stop_time_update.arrival.time) : nil,
-                     departure_delay: stop_time_update.departure&.delay,
-                     departure_time: (stop_time_update.departure&.time&.> 0) ? Time.at(stop_time_update.departure.time) : nil,
-                     feed_timestamp: current_feed_time
-                 }
-               end
+              trip_update.trip_update.stop_time_update.collect do |stop_time_update|
+                {
+                    configuration_id: config.id,
+                    interval_seconds: config.interval_seconds,
+                    trip_update_id: trip_update.id.strip,
+                    stop_id: stop_time_update.stop_id.strip,
+                    arrival_delay: stop_time_update.arrival&.delay,
+                    arrival_time: (stop_time_update.arrival&.time&.> 0) ? Time.at(stop_time_update.arrival.time) : nil,
+                    departure_delay: stop_time_update.departure&.delay,
+                    departure_time: (stop_time_update.departure&.time&.> 0) ? Time.at(stop_time_update.departure.time) : nil,
+                    feed_timestamp: current_feed_time
+                }
+              end
             end.flatten
 
             (trip_updates - new_trip_updates).each do |trip_update|
 
-              prev_stop_time_updates = GTFS::Realtime::StopTimeUpdate.from_partition(config.id, current_feed_time.at_beginning_of_week).where(feed_timestamp: previous_feed_time, trip_update_id: trip_update.id)
+              prev_stop_time_updates = @previous_feeds[config.name][:trip_updates_feed].entity.find{|x| x.trip_update.trip.trip_id.strip == trip_update.id}.trip_update.stop_time_update.sort_by { |x| x.arrival&.time || 0 }
 
-              stop_time_updates = trip_update.trip_update.stop_time_update.sort { |x,y| ((x.arrival&.time&.> 0) && (y.arrival&.time&.> 0)) ? (x.arrival.time <=> y.arrival.time) : (x ? -1 : 1) }
+              stop_time_updates = trip_update.trip_update.stop_time_update.sort_by { |x| x.arrival&.time || 0 }
 
-              new_stop_time_updates = stop_time_updates.select{|t| !(prev_stop_time_updates.pluck(:arrival_time).include? ((t.arrival&.time&.> 0) ? Time.at(t.arrival.time) : nil))}
+              new_arrival_times = stop_time_updates.map{|x| x.arrival&.time} - prev_stop_time_updates.map{|x| x.arrival&.time}
+              new_stop_time_updates = stop_time_updates.select{|x| new_arrival_times.include? x.arrival&.time}
 
               all_new_stop_time_updates +=
                   new_stop_time_updates.collect do |stop_time_update|
@@ -217,9 +254,10 @@ module GTFS
                   end
 
               updated_stop_time_updates = (stop_time_updates - new_stop_time_updates)
-              prev_stop_time_updates_to_check = prev_stop_time_updates.where('stop_id IN (?)', updated_stop_time_updates.collect{|s| s.stop_id.strip}).order(:arrival_time)
+              stop_ids = stop_time_updates.map{|x| x.stop_id.strip} & prev_stop_time_updates.map{|x| x.stop_id.strip}
+              prev_stop_time_updates_to_check = prev_stop_time_updates.select{|x| stop_ids.include? x.stop_id.strip}
 
-              all_new_stop_time_updates += updated_stop_time_updates.each_with_index.select{ |update, idx| ((update.arrival&.time&.> 0) ? Time.at(update.arrival.time) : nil) != prev_stop_time_updates_to_check[idx].arrival_time}.collect do |stop_time_update|
+              all_new_stop_time_updates += updated_stop_time_updates.each_with_index.select{ |x, idx| x.arrival&.time != prev_stop_time_updates_to_check[idx].arrival&.time}.collect do |stop_time_update|
                 stop_time_update = stop_time_update[0]
                 {
                     configuration_id: config.id,
@@ -239,6 +277,7 @@ module GTFS
 
           end
 
+
           GTFS::Realtime::VehiclePosition.create_many(
             vehicle_positions.collect do |vehicle|
               {
@@ -250,7 +289,7 @@ module GTFS
                 longitude: vehicle.vehicle.position.longitude.to_f,
                 bearing: vehicle.vehicle.position.bearing.to_f,
                 timestamp: Time.at(vehicle.vehicle.timestamp),
-                feed_timestamp: current_feed_time
+                feed_timestamp: Time.at(vehicle_positions_header.timestamp)
               }
             end
           )
@@ -265,11 +304,14 @@ module GTFS
                 description_text: service_alert.alert.description_text.translation.first.text,
                 start_time: Time.at(service_alert.alert.active_period.first.start),
                 end_time: Time.at(service_alert.alert.active_period.first.end),
-                feed_timestamp: current_feed_time
+                feed_timestamp: Time.at(service_alerts_header.timestamp)
               }
             end
           )
         end
+
+        @previous_feeds ||= Hash.new
+        @previous_feeds[config.name] = feeds
 
         puts "Finished GTFS-RT refresh at #{Time.now}. Took #{Time.now - start_time} seconds."
       end

@@ -45,6 +45,9 @@ module GTFS
 
       partitioned do |partition|
         partition.using_classes PartitionedByConfiguration, PartitionedByWeeklyTimeField
+
+        partition.index :configuration_id
+        partition.index :feed_timestamp
       end
 
     end

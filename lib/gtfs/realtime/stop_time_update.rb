@@ -9,6 +9,11 @@ module GTFS
       has_one :trip, through: :trip_update
       has_one :route, through: :trip_update
 
+      partitioned do |partition|
+        partition.index :trip_update_id
+        partition.index :stop_id
+      end
+
       def arrival_time
         super ? super.in_time_zone(Time.zone) : nil
       end

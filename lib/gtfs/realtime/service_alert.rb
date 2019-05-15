@@ -6,6 +6,10 @@ module GTFS
 
       belongs_to :stop
 
+      partitioned do |partition|
+        partition.index :stop_id
+      end
+
     end
   end
 end

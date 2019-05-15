@@ -9,6 +9,11 @@ module GTFS
 
       belongs_to :stop
       belongs_to :trip
+
+      partitioned do |partition|
+        partition.index :stop_id
+        partition.index :trip_id
+      end
     end
   end
 end
