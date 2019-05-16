@@ -155,8 +155,9 @@ module GTFS
         # Feed B at 12:01
         #
         # When B is pulled, get B - A. Add all rows of B - A as that is all new data
-        # With all remaining rows of B (ie. B-(B-A)), iterate through (ordering where relevant) and check for changes. If row of B != row of A, add row of B to database.
-        #
+        # With all remaining rows of B (ie. B-(B-A)), iterate through (ordering where relevant) and check for changes.
+        # If row of B != row of A, add row of B to database.
+        # Else update feed timestamp
         GTFS::Realtime::Model.transaction do
 
           # get the feed time of the last feed processed
@@ -166,7 +167,8 @@ module GTFS
           current_feed_time = Time.at(trip_updates_header.timestamp) unless trip_updates_header.nil?
 
           # if no feed has ever been processed, this is the first time its being saved so save all rows
-          if previous_feed_time.nil?
+          # if previous feed time is in different DB partition than current feed time, save all rows (a full backup as opposed to jut saving diff)
+          if previous_feed_time.nil? || GTFS::Realtime::TripUpdate.partition_normalize_key_value(previous_feed_time) != GTFS::Realtime::TripUpdate.partition_normalize_key_value(current_feed_time)
             GTFS::Realtime::TripUpdate.create_many(
                 trip_updates.collect do |trip_update|
                   {
@@ -185,15 +187,10 @@ module GTFS
                  trip_update.trip_update.stop_time_update.collect do |stop_time_update|
                    {
                        configuration_id: config.id,
-                       interval_seconds: config.interval_seconds,
                        trip_update_id: trip_update.id.strip,
-                       stop_id: stop_time_update.stop_id.strip,
-                       arrival_delay: stop_time_update.arrival&.delay,
-                       arrival_time: (stop_time_update.arrival&.time&.> 0) ? Time.at(stop_time_update.arrival.time) : nil,
-                       departure_delay: stop_time_update.departure&.delay,
-                       departure_time: (stop_time_update.departure&.time&.> 0) ? Time.at(stop_time_update.departure.time) : nil,
+                       interval_seconds: config.interval_seconds,
                        feed_timestamp: current_feed_time
-                   }
+                   }.merge(get_stop_time_update_hash(stop_time_update))
                  end
                end.flatten
             )
@@ -202,7 +199,6 @@ module GTFS
           # then confirm the data is new.
           # if the previous_feed_time and current_feed_time are the same we can assume the feed data has not changed and therefore has already been processed
           elsif current_feed_time && previous_feed_time != current_feed_time
-
             # In a trip update, for a trip_id, the route_id will not change
             # so we only need to look for new trip updates that weren't in the previously processed feed
             # and add them and their corresponding stop updates
@@ -223,70 +219,93 @@ module GTFS
                 end
             )
 
+            # update all unchanged trip updates with a new end feed_timestamp
+            trip_updates_update_hash = Hash.new
+            (trip_updates - new_trip_updates).each do |trip_update|
+
+              key = {
+                  configuration_id: config.id,
+                  id: trip_update.id.strip,
+                  trip_id: trip_update.trip_update.trip.trip_id.strip,
+                  route_id: trip_update.trip_update.trip.route_id.strip,
+                  feed_timestamp: previous_feed_time
+              }
+
+              value = {feed_timestamp: current_feed_time, :interval_seconds => config.interval_seconds}
+
+              trip_updates_update_hash[key] = value
+            end
+            GTFS::Realtime::TripUpdate.update_many(trip_updates_update_hash)
+
             # store all new stop updates in an array to be added at once for performance
             all_new_stop_time_updates = new_trip_updates.collect do |trip_update|
               trip_update.trip_update.stop_time_update.collect do |stop_time_update|
                 {
                     configuration_id: config.id,
-                    interval_seconds: config.interval_seconds,
                     trip_update_id: trip_update.id.strip,
-                    stop_id: stop_time_update.stop_id.strip,
-                    arrival_delay: stop_time_update.arrival&.delay,
-                    arrival_time: (stop_time_update.arrival&.time&.> 0) ? Time.at(stop_time_update.arrival.time) : nil,
-                    departure_delay: stop_time_update.departure&.delay,
-                    departure_time: (stop_time_update.departure&.time&.> 0) ? Time.at(stop_time_update.departure.time) : nil,
+                    interval_seconds: config.interval_seconds,
                     feed_timestamp: current_feed_time
-                }
+                }.merge(get_stop_time_update_hash(stop_time_update))
+
               end
             end.flatten
+
+            all_other_stop_time_updates = Hash.new
 
             # For all other trip updates, check stop updates for changes
             (trip_updates - new_trip_updates).each do |trip_update|
 
               # get all new stop time updates that weren't in previously processed feed
-              prev_stop_time_updates = @previous_feeds[config.name][:trip_updates_feed].entity.find{|x| x.trip_update.trip.trip_id.strip == trip_update.id}.trip_update.stop_time_update.sort_by { |x| x.arrival&.time || 0 }
-              stop_time_updates = trip_update.trip_update.stop_time_update.sort_by { |x| x.arrival&.time || 0 }
-              new_arrival_times = stop_time_updates.map{|x| x.arrival&.time} - prev_stop_time_updates.map{|x| x.arrival&.time}
-              new_stop_time_updates = stop_time_updates.select{|x| new_arrival_times.include? x.arrival&.time}
+              # order by departure time
+              # convert all stop time updates to hashes for easy comparison
+              prev_stop_time_updates = @previous_feeds[config.name][:trip_updates_feed].entity.find{|x| x.trip_update.trip.trip_id.strip == trip_update.id}.trip_update.stop_time_update.sort_by { |x| x.departure&.time || 0 }.map{|x| get_stop_time_update_hash(x)}
+              stop_time_updates = trip_update.trip_update.stop_time_update.sort_by { |x| x.departure&.time || 0 }.map{|x| get_stop_time_update_hash(x)}
+              new_stop_time_updates = stop_time_updates - prev_stop_time_updates
 
               all_new_stop_time_updates +=
                   new_stop_time_updates.collect do |stop_time_update|
                     {
                         configuration_id: config.id,
-                        interval_seconds: config.interval_seconds,
                         trip_update_id: trip_update.id.strip,
-                        stop_id: stop_time_update.stop_id.strip,
-                        arrival_delay: stop_time_update.arrival&.delay,
-                        arrival_time: (stop_time_update.arrival&.time&.> 0) ? Time.at(stop_time_update.arrival.time) : nil,
-                        departure_delay: stop_time_update.departure&.delay,
-                        departure_time: (stop_time_update.departure&.time&.> 0) ? Time.at(stop_time_update.departure.time) : nil,
+                        interval_seconds: config.interval_seconds,
                         feed_timestamp: current_feed_time
-                    }
+                    }.merge(stop_time_update)
                   end
 
-              # for all other stop updates, order both previous stop time update data and current data then compare arrival_time
-              # if different, get changed stop time updates
+              # for all other stop updates, compare
               updated_stop_time_updates = (stop_time_updates - new_stop_time_updates)
-              stop_ids = stop_time_updates.map{|x| x.stop_id.strip} & prev_stop_time_updates.map{|x| x.stop_id.strip}
-              prev_stop_time_updates_to_check = prev_stop_time_updates.select{|x| stop_ids.include? x.stop_id.strip}
+              prev_stop_time_updates_to_check = (prev_stop_time_updates & updated_stop_time_updates)
 
-              all_new_stop_time_updates += updated_stop_time_updates.each_with_index.select{ |x, idx| x.arrival&.time != prev_stop_time_updates_to_check[idx].arrival&.time}.collect do |stop_time_update|
-                stop_time_update = stop_time_update[0]
-                {
-                    configuration_id: config.id,
-                    interval_seconds: config.interval_seconds,
-                    trip_update_id: trip_update.id.strip,
-                    stop_id: stop_time_update.stop_id.strip,
-                    arrival_delay: stop_time_update.arrival&.delay,
-                    arrival_time: (stop_time_update.arrival&.time&.> 0) ? Time.at(stop_time_update.arrival.time) : nil,
-                    departure_delay: stop_time_update.departure&.delay,
-                    departure_time: (stop_time_update.departure&.time&.> 0) ? Time.at(stop_time_update.departure.time) : nil,
-                    feed_timestamp: current_feed_time
-                }
+              updated_stop_time_updates.each_with_index do |stop_time_update, idx|
+                # if different add new row
+                if stop_time_update != prev_stop_time_updates_to_check[idx]
+                  all_new_stop_time_updates += (
+                    {
+                        configuration_id: config.id,
+                        trip_update_id: trip_update.id.strip,
+                        interval_seconds: config.interval_seconds,
+                        feed_timestamp: current_feed_time
+                    }.merge(stop_time_update)
+
+                  )
+                else # if not update feed timestamp
+                  key = {
+                      configuration_id: config.id,
+                      trip_update_id: trip_update.id.strip,
+                      interval_seconds: config.interval_seconds,
+                      feed_timestamp: previous_feed_time
+                  }.merge(stop_time_update)
+
+                  value = {interval_seconds: config.interval_seconds, feed_timestamp: current_feed_time}
+
+                  all_other_stop_time_updates[key] = value
+                end
               end
             end
 
-            GTFS::Realtime::StopTimeUpdate.create_many(all_new_stop_time_updates) # save stop time updates to database
+            # save stop time updates to database
+            GTFS::Realtime::StopTimeUpdate.create_many(all_new_stop_time_updates)
+            GTFS::Realtime::StopTimeUpdate.update_many(all_other_stop_time_updates)
 
           end
 
@@ -346,6 +365,16 @@ module GTFS
 
       def run_migrations
         ActiveRecord::Migrator.migrate(File.expand_path("../realtime/migrations", __FILE__))
+      end
+
+      def get_stop_time_update_hash(stop_time_update)
+        {
+            stop_id: stop_time_update.stop_id.strip,
+            arrival_delay: stop_time_update.arrival&.delay,
+            arrival_time: (stop_time_update.arrival&.time&.> 0) ? Time.at(stop_time_update.arrival.time) : nil,
+            departure_delay: stop_time_update.departure&.delay,
+            departure_time: (stop_time_update.departure&.time&.> 0) ? Time.at(stop_time_update.departure.time) : nil,
+        }
       end
     end
   end
