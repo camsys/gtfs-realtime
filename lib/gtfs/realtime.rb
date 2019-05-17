@@ -2,6 +2,7 @@ require "google/transit/gtfs-realtime.pb"
 require "gtfs"
 require "active_record"
 require "bulk_insert"
+require "partitioned"
 require "gtfs/gtfs_gem_patch"
 
 require "gtfs/realtime/model"
@@ -165,6 +166,7 @@ module GTFS
 
           # get the feed time of the feed being processed currently
           current_feed_time = Time.at(trip_updates_header.timestamp) unless trip_updates_header.nil?
+          current_feed_time_without_timezone = Time.zone.at(current_feed_time.to_i) # used as string in query
 
           # if no feed has ever been processed, this is the first time its being saved so save all rows
           # if previous feed time is in different DB partition than current feed time, save all rows (a full backup as opposed to jut saving diff)
@@ -232,7 +234,7 @@ module GTFS
                   }
                 end,
                 {
-                  set_array: '"'+ "feed_timestamp ='#{current_feed_time}', interval_seconds = \#{table_name}.interval_seconds + datatable.interval_seconds"+'"',
+                  set_array: '"'+ "feed_timestamp ='#{current_feed_time_without_timezone}', interval_seconds = \#{table_name}.interval_seconds + datatable.interval_seconds"+'"',
                   where_datatable: '"#{table_name}.configuration_id = datatable.configuration_id AND #{table_name}.id = datatable.id AND #{table_name}.trip_id = datatable.trip_id AND #{table_name}.route_id = datatable.route_id AND #{table_name}.feed_timestamp = datatable.feed_timestamp"'
                 }
             )
@@ -258,7 +260,7 @@ module GTFS
               # get all new stop time updates that weren't in previously processed feed
               # order by departure time
               # convert all stop time updates to hashes for easy comparison
-              prev_stop_time_updates = @previous_feeds[config.name][:trip_updates_feed].entity.find{|x| x.trip_update.trip.trip_id.strip == trip_update.id}.trip_update.stop_time_update.sort_by { |x| x.departure&.time || 0 }.map{|x| get_stop_time_update_hash(x)}
+              prev_stop_time_updates = @previous_feeds[config.name][:trip_updates_feed].entity.find{|x| x.id.strip == trip_update.id.strip}.trip_update.stop_time_update.sort_by { |x| x.departure&.time || 0 }.map{|x| get_stop_time_update_hash(x)}
               stop_time_updates = trip_update.trip_update.stop_time_update.sort_by { |x| x.departure&.time || 0 }.map{|x| get_stop_time_update_hash(x)}
               new_stop_time_updates = stop_time_updates - prev_stop_time_updates
 
@@ -304,7 +306,7 @@ module GTFS
             GTFS::Realtime::StopTimeUpdate.update_many(
                 all_other_stop_time_updates,
                 {
-                    set_array: '"'+ "feed_timestamp ='#{current_feed_time}', interval_seconds = \#{table_name}.interval_seconds + datatable.interval_seconds"+'"',
+                    set_array: '"'+ "feed_timestamp ='#{current_feed_time_without_timezone}', interval_seconds = \#{table_name}.interval_seconds + datatable.interval_seconds"+'"',
                     where_datatable: '
                     "#{table_name}.configuration_id = datatable.configuration_id AND #{table_name}.trip_update_id = datatable.trip_update_id AND #{table_name}.stop_id = datatable.stop_id AND #{table_name}.arrival_delay = datatable.arrival_delay AND #{table_name}.arrival_time = datatable.arrival_time AND #{table_name}.departure_delay = datatable.departure_delay AND #{table_name}.departure_time = datatable.departure_time AND #{table_name}.feed_timestamp = datatable.feed_timestamp"'
                 }

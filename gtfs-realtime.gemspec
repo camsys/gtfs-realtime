@@ -24,13 +24,14 @@ Gem::Specification.new do |spec|
   spec.add_development_dependency "bundler", "~> 1.13"
   spec.add_development_dependency "rake", "~> 10.0"
   spec.add_development_dependency "sqlite3"
-  spec.add_development_dependency "rspec", "~> 3.0"
+  spec.add_development_dependency "rspec"
   spec.add_development_dependency "webmock"
+  spec.add_development_dependency 'combustion', '~> 1.1'
 
   spec.add_dependency "gtfs-realtime-bindings"
   spec.add_dependency "gtfs"
   spec.add_dependency "protobuf", "< 3.7"
-  spec.add_dependency "activerecord"
+  spec.add_dependency "activerecord", '~> 5.1.7'
   spec.add_dependency "bulk_insert"
 
   spec.add_dependency "partitioned"

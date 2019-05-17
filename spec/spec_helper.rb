@@ -1,15 +1,12 @@
-$LOAD_PATH.unshift File.expand_path("../../lib", __FILE__)
-require "gtfs/realtime"
-require 'webmock/rspec'
+require 'bundler'
 
-WebMock.disable_net_connect!(allow_localhost: true)
-RSpec.configure do |config|
-  STATIC_FEED_URL = "http://www.ripta.com/googledata/current/google_transit.zip"
+Bundler.require :default, :development
 
-  config.before(:each) do
-    stub_request(:get, STATIC_FEED_URL).
-      to_return(status: 200, body: File.open("./spec/fixtures/google_transit.zip"){|f| f.read}, headers: {})
-  end
+# If you're using all parts of Rails:
+Combustion.initialize! :active_record
+# Or, load just what you need:
+# Combustion.initialize! :active_record, :action_controller
 
-  ActiveRecord::Base.establish_connection(adapter: 'sqlite3', database: ':memory:')
-end
+require 'rspec'
+# If you're using Capybara:
+# require 'capybara/rails'
