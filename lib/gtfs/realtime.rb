@@ -220,22 +220,22 @@ module GTFS
             )
 
             # update all unchanged trip updates with a new end feed_timestamp
-            trip_updates_update_hash = Hash.new
-            (trip_updates - new_trip_updates).each do |trip_update|
-
-              key = {
-                  configuration_id: config.id,
-                  id: trip_update.id.strip,
-                  trip_id: trip_update.trip_update.trip.trip_id.strip,
-                  route_id: trip_update.trip_update.trip.route_id.strip,
-                  feed_timestamp: previous_feed_time
-              }
-
-              value = {feed_timestamp: current_feed_time, :interval_seconds => config.interval_seconds}
-
-              trip_updates_update_hash[key] = value
-            end
-            GTFS::Realtime::TripUpdate.update_many(trip_updates_update_hash)
+            GTFS::Realtime::TripUpdate.update_many(
+                (trip_updates - new_trip_updates).collect do |trip_update|
+                  {
+                      configuration_id: config.id,
+                      id: trip_update.id.strip,
+                      trip_id: trip_update.trip_update.trip.trip_id.strip,
+                      route_id: trip_update.trip_update.trip.route_id.strip,
+                      feed_timestamp: previous_feed_time,
+                      interval_seconds: config.interval_seconds
+                  }
+                end,
+                {
+                  set_array: '"'+ "feed_timestamp ='#{current_feed_time}', interval_seconds = \#{table_name}.interval_seconds + datatable.interval_seconds"+'"',
+                  where_datatable: '"#{table_name}.configuration_id = datatable.configuration_id AND #{table_name}.id = datatable.id AND #{table_name}.trip_id = datatable.trip_id AND #{table_name}.route_id = datatable.route_id AND #{table_name}.feed_timestamp = datatable.feed_timestamp"'
+                }
+            )
 
             # store all new stop updates in an array to be added at once for performance
             all_new_stop_time_updates = new_trip_updates.collect do |trip_update|
@@ -250,7 +250,7 @@ module GTFS
               end
             end.flatten
 
-            all_other_stop_time_updates = Hash.new
+            all_other_stop_time_updates = []
 
             # For all other trip updates, check stop updates for changes
             (trip_updates - new_trip_updates).each do |trip_update|
@@ -279,7 +279,7 @@ module GTFS
               updated_stop_time_updates.each_with_index do |stop_time_update, idx|
                 # if different add new row
                 if stop_time_update != prev_stop_time_updates_to_check[idx]
-                  all_new_stop_time_updates += (
+                  all_new_stop_time_updates << (
                     {
                         configuration_id: config.id,
                         trip_update_id: trip_update.id.strip,
@@ -289,23 +289,26 @@ module GTFS
 
                   )
                 else # if not update feed timestamp
-                  key = {
+                  all_other_stop_time_updates << ({
                       configuration_id: config.id,
                       trip_update_id: trip_update.id.strip,
-                      interval_seconds: config.interval_seconds,
-                      feed_timestamp: previous_feed_time
-                  }.merge(stop_time_update)
-
-                  value = {interval_seconds: config.interval_seconds, feed_timestamp: current_feed_time}
-
-                  all_other_stop_time_updates[key] = value
+                      feed_timestamp: previous_feed_time,
+                      interval_seconds: config.interval_seconds
+                  }.merge(stop_time_update))
                 end
               end
             end
 
             # save stop time updates to database
             GTFS::Realtime::StopTimeUpdate.create_many(all_new_stop_time_updates)
-            GTFS::Realtime::StopTimeUpdate.update_many(all_other_stop_time_updates)
+            GTFS::Realtime::StopTimeUpdate.update_many(
+                all_other_stop_time_updates,
+                {
+                    set_array: '"'+ "feed_timestamp ='#{current_feed_time}', interval_seconds = \#{table_name}.interval_seconds + datatable.interval_seconds"+'"',
+                    where_datatable: '
+                    "#{table_name}.configuration_id = datatable.configuration_id AND #{table_name}.trip_update_id = datatable.trip_update_id AND #{table_name}.stop_id = datatable.stop_id AND #{table_name}.arrival_delay = datatable.arrival_delay AND #{table_name}.arrival_time = datatable.arrival_time AND #{table_name}.departure_delay = datatable.departure_delay AND #{table_name}.departure_time = datatable.departure_time AND #{table_name}.feed_timestamp = datatable.feed_timestamp"'
+                }
+            )
 
           end
 
