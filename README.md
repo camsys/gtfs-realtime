@@ -40,7 +40,6 @@ Note: if you don't ping your feed in the same interval as you config you can't r
 ## Limitations
 
 * Partitions are not configurable. All realtime tables are partitioned by feed, and a week of data.
-* Only partitions for the weeks of 2019 are currently supported. IMPORTANT TO DO
 
 ## Development
 

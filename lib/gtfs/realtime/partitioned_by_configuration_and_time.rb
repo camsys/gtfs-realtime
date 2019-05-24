@@ -5,6 +5,17 @@ module GTFS
       self.table_name_prefix = "gtfs_realtime_"
 
       #
+      # get all partition tables
+      #
+      def self.partition_tables
+        tmp = connection.schema_search_path
+        connection.schema_search_path = table_name + '_partitions'
+        tables = connection.tables
+        connection.schema_search_path = tmp
+        tables
+      end
+
+      #
       # Normalize a partition key value by week. We've picked
       # the beginning of the week to key on, which is Monday.
       #

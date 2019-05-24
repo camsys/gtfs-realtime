@@ -148,6 +148,21 @@ module GTFS
         service_alerts = feeds[:service_alerts_feed].try(:entity) || []
         service_alerts_header = feeds[:service_alerts_feed].try(:header)
 
+        # get the feed time of the last feed processed
+        previous_feed_time = Time.at(@previous_feeds[config.name][:trip_updates_feed].header.timestamp) unless @previous_feeds.nil? || @previous_feeds[config.name][:trip_updates_feed].nil?
+
+        # get the feed time of the feed being processed currently
+        current_feed_time = Time.at(trip_updates_header.timestamp) unless trip_updates_header.nil?
+        current_feed_time_without_timezone = Time.zone.at(current_feed_time.to_i) # used as string in query
+
+
+        # check if need to create new partition
+        if current_feed_time.try(:at_beginning_of_week) != previous_feed_time.try(:at_beginning_of_week)
+          GTFS::Realtime::TripUpdate.create_new_partition_tables([config.id, current_feed_time.at_beginning_of_week]) unless GTFS::Realtime::TripUpdate.partition_tables.include? "p#{config.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
+          GTFS::Realtime::StopTimeUpdate.create_new_partition_tables([config.id, current_feed_time.at_beginning_of_week]) unless GTFS::Realtime::StopTimeUpdate.partition_tables.include? "p#{config.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
+          GTFS::Realtime::VehiclePosition.create_new_partition_tables([config.id, current_feed_time.at_beginning_of_week]) unless GTFS::Realtime::VehiclePosition.partition_tables.include? "p#{config.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
+          GTFS::Realtime::ServiceAlert.create_new_partition_tables([config.id, current_feed_time.at_beginning_of_week]) unless GTFS::Realtime::ServiceAlert.partition_tables.include? "p#{config.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
+        end
 
         # (Simple) Logic to pulling feed data:
         #
@@ -160,13 +175,6 @@ module GTFS
         # If row of B != row of A, add row of B to database.
         # Else update feed timestamp
         GTFS::Realtime::Model.transaction do
-
-          # get the feed time of the last feed processed
-          previous_feed_time = Time.at(@previous_feeds[config.name][:trip_updates_feed].header.timestamp) unless @previous_feeds.nil? || @previous_feeds[config.name][:trip_updates_feed].nil?
-
-          # get the feed time of the feed being processed currently
-          current_feed_time = Time.at(trip_updates_header.timestamp) unless trip_updates_header.nil?
-          current_feed_time_without_timezone = Time.zone.at(current_feed_time.to_i) # used as string in query
 
           # if no feed has ever been processed, this is the first time its being saved so save all rows
           # if previous feed time is in different DB partition than current feed time, save all rows (a full backup as opposed to jut saving diff)
