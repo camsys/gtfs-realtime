@@ -4,6 +4,7 @@ require "active_record"
 require "bulk_insert"
 require "partitioned"
 require "gtfs/gtfs_gem_patch"
+require 'gtfs/realtime/engine'
 
 require "gtfs/realtime/model"
 
@@ -183,7 +184,7 @@ module GTFS
                 trip_updates.collect do |trip_update|
                   {
                       configuration_id: config.id,
-                      interval_seconds: config.interval_seconds,
+                      interval_seconds: 0,
                       id: trip_update.id.strip,
                       trip_id: trip_update.trip_update.trip.trip_id.strip,
                       route_id: trip_update.trip_update.trip.route_id.strip,
@@ -198,7 +199,7 @@ module GTFS
                    {
                        configuration_id: config.id,
                        trip_update_id: trip_update.id.strip,
-                       interval_seconds: config.interval_seconds,
+                       interval_seconds: 0,
                        feed_timestamp: current_feed_time
                    }.merge(get_stop_time_update_hash(stop_time_update))
                  end
@@ -220,7 +221,7 @@ module GTFS
                 new_trip_updates.collect do |trip_update|
                   {
                       configuration_id: config.id,
-                      interval_seconds: config.interval_seconds,
+                      interval_seconds: 0,
                       id: trip_update.id.strip,
                       trip_id: trip_update.trip_update.trip.trip_id.strip,
                       route_id: trip_update.trip_update.trip.route_id.strip,
@@ -253,7 +254,7 @@ module GTFS
                 {
                     configuration_id: config.id,
                     trip_update_id: trip_update.id.strip,
-                    interval_seconds: config.interval_seconds,
+                    interval_seconds: 0,
                     feed_timestamp: current_feed_time
                 }.merge(get_stop_time_update_hash(stop_time_update))
 
@@ -277,7 +278,7 @@ module GTFS
                     {
                         configuration_id: config.id,
                         trip_update_id: trip_update.id.strip,
-                        interval_seconds: config.interval_seconds,
+                        interval_seconds: 0,
                         feed_timestamp: current_feed_time
                     }.merge(stop_time_update)
                   end
@@ -293,7 +294,7 @@ module GTFS
                     {
                         configuration_id: config.id,
                         trip_update_id: trip_update.id.strip,
-                        interval_seconds: config.interval_seconds,
+                        interval_seconds: 0,
                         feed_timestamp: current_feed_time
                     }.merge(stop_time_update)
 
@@ -327,7 +328,7 @@ module GTFS
             vehicle_positions.collect do |vehicle|
               {
                 configuration_id: config.id,
-                interval_seconds: config.interval_seconds,
+                interval_seconds: 0,
                 trip_id: vehicle.vehicle.trip.trip_id.strip,
                 stop_id: vehicle.vehicle.stop_id.strip,
                 latitude: vehicle.vehicle.position.latitude.to_f,
@@ -344,7 +345,7 @@ module GTFS
             service_alerts.collect do |service_alert|
               {
                 configuration_id: config.id,
-                interval_seconds: config.interval_seconds,
+                interval_seconds: 0,
                 stop_id: service_alert.alert.informed_entity.first.stop_id.strip,
                 header_text: service_alert.alert.header_text.translation.first.text,
                 description_text: service_alert.alert.description_text.translation.first.text,
