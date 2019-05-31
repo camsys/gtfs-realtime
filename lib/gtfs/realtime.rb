@@ -56,7 +56,7 @@ module GTFS
           GTFS::Realtime::CalendarDate.bulk_insert(values:
             static_data.calendar_dates.collect do |calendar_date|
               {
-                service_id: calendar_date.service_id.strip,
+                service_id: calendar_date.service_id.to_s.strip,
                 date: Date.strptime(calendar_date.date, "%Y%m%d"),
                 exception_type: calendar_date.exception_type
               }
@@ -67,7 +67,7 @@ module GTFS
           GTFS::Realtime::Route.bulk_insert(:id, :short_name, :long_name, :url, values:
             static_data.routes.collect do |route|
               {
-                id: route.id.strip,
+                id: route.id.to_s.strip,
                 short_name: route.short_name,
                 long_name: route.long_name,
                 url: route.url
@@ -79,7 +79,7 @@ module GTFS
           GTFS::Realtime::Shape.bulk_insert(:id, :sequence, :latitude, :longitude, values:
             static_data.shapes.collect do |shape|
               {
-                id: shape.id.strip,
+                id: shape.id.to_s.strip,
                 sequence: shape.pt_sequence,
                 latitude: shape.pt_lat.to_f,
                 longitude: shape.pt_lon.to_f
@@ -91,8 +91,8 @@ module GTFS
           GTFS::Realtime::Stop.bulk_insert(:id, :name, :latitude, :longitude, values:
             static_data.stops.collect do |stop|
               {
-                id: stop.id.strip,
-                name: stop.name.strip,
+                id: stop.id.to_s.strip,
+                name: stop.name.to_s.strip,
                 latitude: stop.lat.to_f,
                 longitude: stop.lon.to_f
               }
@@ -103,8 +103,8 @@ module GTFS
           GTFS::Realtime::StopTime.bulk_insert(values:
             static_data.stop_times.collect do |stop_time|
               {
-                stop_id: stop_time.stop_id.strip,
-                trip_id: stop_time.trip_id.strip,
+                stop_id: stop_time.stop_id.to_s.strip,
+                trip_id: stop_time.trip_id.to_s.strip,
                 arrival_time: stop_time.arrival_time,
                 departure_time: stop_time.departure_time,
                 stop_sequence: stop_time.stop_sequence.to_i
@@ -116,11 +116,11 @@ module GTFS
           GTFS::Realtime::Trip.bulk_insert(:id, :headsign, :route_id, :service_id, :shape_id, :direction_id, values:
             static_data.trips.collect do |trip|
               {
-                id: trip.id.strip,
-                headsign: trip.headsign.strip,
-                route_id: trip.route_id.strip,
-                service_id: trip.service_id.strip,
-                shape_id: trip.shape_id.strip,
+                id: trip.id.to_s.strip,
+                headsign: trip.headsign.to_s.strip,
+                route_id: trip.route_id.to_s.strip,
+                service_id: trip.service_id.to_s.strip,
+                shape_id: trip.shape_id.to_s.strip,
                 direction_id: trip.direction_id
               }
             end
@@ -137,20 +137,20 @@ module GTFS
       def refresh_realtime_feed!(config_name)
 
         start_time = Time.now
-        puts "Starting GTFS-RT refresh at #{start_time}."
+        puts "Starting GTFS-RT refresh for #{config_name} at #{start_time}."
 
         # pull trip update, vehicle position, and service alerts entries and header data
         config = GTFS::Realtime::Configuration.find_by(name: config_name)
         feeds = {trip_updates_feed: get_feed(config.trip_updates_feed), vehicle_positions_feed: get_feed(config.vehicle_positions_feed), service_alerts_feed: get_feed(config.service_alerts_feed)}
-        trip_updates = feeds[:trip_updates_feed].try(:entity) || []
+        trip_updates = (feeds[:trip_updates_feed].try(:entity) || []).select{|x| x.trip_update.present?}
         trip_updates_header = feeds[:trip_updates_feed].try(:header)
-        vehicle_positions = feeds[:vehicle_positions_feed].try(:entity) || []
+        vehicle_positions = (feeds[:vehicle_positions_feed].try(:entity) || []).select{|x| x.vehicle.present?}
         vehicle_positions_header = feeds[:vehicle_positions_feed].try(:header)
-        service_alerts = feeds[:service_alerts_feed].try(:entity) || []
+        service_alerts = (feeds[:service_alerts_feed].try(:entity) || []).select{|x| x.alert.present?}
         service_alerts_header = feeds[:service_alerts_feed].try(:header)
 
         # get the feed time of the last feed processed
-        previous_feed_time = Time.at(@previous_feeds[config.name][:trip_updates_feed].header.timestamp) unless @previous_feeds.nil? || @previous_feeds[config.name][:trip_updates_feed].nil?
+        previous_feed_time = Time.at(@previous_feeds[config.name][:trip_updates_feed].header.timestamp) unless @previous_feeds.nil? || @previous_feeds[config.name].nil? || @previous_feeds[config.name][:trip_updates_feed].nil?
 
         # get the feed time of the feed being processed currently
         current_feed_time = Time.at(trip_updates_header.timestamp) unless trip_updates_header.nil?
@@ -159,10 +159,10 @@ module GTFS
 
         # check if need to create new partition
         if current_feed_time.try(:at_beginning_of_week) != previous_feed_time.try(:at_beginning_of_week)
-          GTFS::Realtime::TripUpdate.create_new_partition_tables([config.id, current_feed_time.at_beginning_of_week]) unless GTFS::Realtime::TripUpdate.partition_tables.include? "p#{config.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
-          GTFS::Realtime::StopTimeUpdate.create_new_partition_tables([config.id, current_feed_time.at_beginning_of_week]) unless GTFS::Realtime::StopTimeUpdate.partition_tables.include? "p#{config.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
-          GTFS::Realtime::VehiclePosition.create_new_partition_tables([config.id, current_feed_time.at_beginning_of_week]) unless GTFS::Realtime::VehiclePosition.partition_tables.include? "p#{config.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
-          GTFS::Realtime::ServiceAlert.create_new_partition_tables([config.id, current_feed_time.at_beginning_of_week]) unless GTFS::Realtime::ServiceAlert.partition_tables.include? "p#{config.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
+          GTFS::Realtime::TripUpdate.create_new_partition_tables([[config.id, current_feed_time.at_beginning_of_week]]) unless GTFS::Realtime::TripUpdate.partition_tables.include? "p#{config.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
+          GTFS::Realtime::StopTimeUpdate.create_new_partition_tables([[config.id, current_feed_time.at_beginning_of_week]]) unless GTFS::Realtime::StopTimeUpdate.partition_tables.include? "p#{config.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
+          GTFS::Realtime::VehiclePosition.create_new_partition_tables([[config.id, current_feed_time.at_beginning_of_week]]) unless GTFS::Realtime::VehiclePosition.partition_tables.include? "p#{config.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
+          GTFS::Realtime::ServiceAlert.create_new_partition_tables([[config.id, current_feed_time.at_beginning_of_week]]) unless GTFS::Realtime::ServiceAlert.partition_tables.include? "p#{config.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
         end
 
         # (Simple) Logic to pulling feed data:
@@ -185,9 +185,9 @@ module GTFS
                   {
                       configuration_id: config.id,
                       interval_seconds: 0,
-                      id: trip_update.id.strip,
-                      trip_id: trip_update.trip_update.trip.trip_id.strip,
-                      route_id: trip_update.trip_update.trip.route_id.strip,
+                      id: trip_update.id.to_s.strip,
+                      trip_id: trip_update.trip_update.trip.trip_id.to_s.strip,
+                      route_id: trip_update.trip_update.trip.route_id.to_s.strip,
                       feed_timestamp: current_feed_time
                   }
                 end
@@ -198,7 +198,7 @@ module GTFS
                  trip_update.trip_update.stop_time_update.collect do |stop_time_update|
                    {
                        configuration_id: config.id,
-                       trip_update_id: trip_update.id.strip,
+                       trip_update_id: trip_update.id.to_s.strip,
                        interval_seconds: 0,
                        feed_timestamp: current_feed_time
                    }.merge(get_stop_time_update_hash(stop_time_update))
@@ -214,17 +214,17 @@ module GTFS
             # so we only need to look for new trip updates that weren't in the previously processed feed
             # and add them and their corresponding stop updates
             prev_trip_updates = @previous_feeds[config.name][:trip_updates_feed].entity
-            new_trip_ids = trip_updates.map{|x| x.trip_update.trip.trip_id.strip} - prev_trip_updates.map{|x| x.trip_update.trip.trip_id.strip}
-            new_trip_updates = trip_updates.select{|x| new_trip_ids.include? x.trip_update.trip.trip_id.strip}
+            new_trip_ids = trip_updates.map{|x| x.trip_update.trip.trip_id.to_s.strip} - prev_trip_updates.map{|x| x.trip_update.trip.trip_id.to_s.strip}
+            new_trip_updates = trip_updates.select{|x| new_trip_ids.include? x.trip_update.trip.trip_id.to_s.strip}
 
             GTFS::Realtime::TripUpdate.create_many(
                 new_trip_updates.collect do |trip_update|
                   {
                       configuration_id: config.id,
                       interval_seconds: 0,
-                      id: trip_update.id.strip,
-                      trip_id: trip_update.trip_update.trip.trip_id.strip,
-                      route_id: trip_update.trip_update.trip.route_id.strip,
+                      id: trip_update.id.to_s.strip,
+                      trip_id: trip_update.trip_update.trip.trip_id.to_s.strip,
+                      route_id: trip_update.trip_update.trip.route_id.to_s.strip,
                       feed_timestamp: current_feed_time
                   }
                 end
@@ -235,9 +235,9 @@ module GTFS
                 (trip_updates - new_trip_updates).collect do |trip_update|
                   {
                       configuration_id: config.id,
-                      id: trip_update.id.strip,
-                      trip_id: trip_update.trip_update.trip.trip_id.strip,
-                      route_id: trip_update.trip_update.trip.route_id.strip,
+                      id: trip_update.id.to_s.strip,
+                      trip_id: trip_update.trip_update.trip.trip_id.to_s.strip,
+                      route_id: trip_update.trip_update.trip.route_id.to_s.strip,
                       feed_timestamp: previous_feed_time,
                       interval_seconds: config.interval_seconds
                   }
@@ -253,7 +253,7 @@ module GTFS
               trip_update.trip_update.stop_time_update.collect do |stop_time_update|
                 {
                     configuration_id: config.id,
-                    trip_update_id: trip_update.id.strip,
+                    trip_update_id: trip_update.id.to_s.strip,
                     interval_seconds: 0,
                     feed_timestamp: current_feed_time
                 }.merge(get_stop_time_update_hash(stop_time_update))
@@ -269,7 +269,7 @@ module GTFS
               # get all new stop time updates that weren't in previously processed feed
               # order by departure time
               # convert all stop time updates to hashes for easy comparison
-              prev_stop_time_updates = @previous_feeds[config.name][:trip_updates_feed].entity.find{|x| x.id.strip == trip_update.id.strip}.trip_update.stop_time_update.sort_by { |x| x.departure&.time || 0 }.map{|x| get_stop_time_update_hash(x)}
+              prev_stop_time_updates = @previous_feeds[config.name][:trip_updates_feed].entity.find{|x| x.id.to_s.strip == trip_update.id.to_s.strip}.trip_update.stop_time_update.sort_by { |x| x.departure&.time || 0 }.map{|x| get_stop_time_update_hash(x)}
               stop_time_updates = trip_update.trip_update.stop_time_update.sort_by { |x| x.departure&.time || 0 }.map{|x| get_stop_time_update_hash(x)}
               new_stop_time_updates = stop_time_updates - prev_stop_time_updates
 
@@ -277,7 +277,7 @@ module GTFS
                   new_stop_time_updates.collect do |stop_time_update|
                     {
                         configuration_id: config.id,
-                        trip_update_id: trip_update.id.strip,
+                        trip_update_id: trip_update.id.to_s.strip,
                         interval_seconds: 0,
                         feed_timestamp: current_feed_time
                     }.merge(stop_time_update)
@@ -293,7 +293,7 @@ module GTFS
                   all_new_stop_time_updates << (
                     {
                         configuration_id: config.id,
-                        trip_update_id: trip_update.id.strip,
+                        trip_update_id: trip_update.id.to_s.strip,
                         interval_seconds: 0,
                         feed_timestamp: current_feed_time
                     }.merge(stop_time_update)
@@ -302,7 +302,7 @@ module GTFS
                 else # if not update feed timestamp
                   all_other_stop_time_updates << ({
                       configuration_id: config.id,
-                      trip_update_id: trip_update.id.strip,
+                      trip_update_id: trip_update.id.to_s.strip,
                       feed_timestamp: previous_feed_time,
                       interval_seconds: config.interval_seconds
                   }.merge(stop_time_update))
@@ -329,11 +329,11 @@ module GTFS
               {
                 configuration_id: config.id,
                 interval_seconds: 0,
-                trip_id: vehicle.vehicle.trip.trip_id.strip,
-                stop_id: vehicle.vehicle.stop_id.strip,
-                latitude: vehicle.vehicle.position.latitude.to_f,
-                longitude: vehicle.vehicle.position.longitude.to_f,
-                bearing: vehicle.vehicle.position.bearing.to_f,
+                trip_id: vehicle.vehicle.trip.trip_id.to_s.strip,
+                stop_id: vehicle.vehicle.stop_id.to_s.strip,
+                latitude: vehicle.vehicle.position.try(:latitude).try(:to_f),
+                longitude: vehicle.vehicle.position.try(:longitude).try(:to_f),
+                bearing: vehicle.vehicle.position.try(:bearing).try(:to_f),
                 timestamp: Time.at(vehicle.vehicle.timestamp),
                 feed_timestamp: Time.at(vehicle_positions_header.timestamp)
               }
@@ -346,7 +346,7 @@ module GTFS
               {
                 configuration_id: config.id,
                 interval_seconds: 0,
-                stop_id: service_alert.alert.informed_entity.first.stop_id.strip,
+                stop_id: service_alert.alert.informed_entity.first.stop_id.to_s.strip,
                 header_text: service_alert.alert.header_text.translation.first.text,
                 description_text: service_alert.alert.description_text.translation.first.text,
                 start_time: Time.at(service_alert.alert.active_period.first.start),
@@ -355,12 +355,12 @@ module GTFS
               }
             end
           )
-        end
+        end # end of ActiveRecord transaction
 
         @previous_feeds ||= Hash.new
         @previous_feeds[config.name] = feeds
 
-        puts "Finished GTFS-RT refresh at #{Time.now}. Took #{Time.now - start_time} seconds."
+        puts "Finished GTFS-RT refresh for #{config_name} at #{Time.now}. Took #{Time.now - start_time} seconds."
       end
 
       private
@@ -383,7 +383,7 @@ module GTFS
 
       def get_stop_time_update_hash(stop_time_update)
         {
-            stop_id: stop_time_update.stop_id.strip,
+            stop_id: stop_time_update.stop_id.to_s.strip,
             arrival_delay: stop_time_update.arrival&.delay,
             arrival_time: (stop_time_update.arrival&.time&.> 0) ? Time.at(stop_time_update.arrival.time) : nil,
             departure_delay: stop_time_update.departure&.delay,
