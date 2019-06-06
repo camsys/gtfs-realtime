@@ -17,7 +17,7 @@ gem 'whenever', require: false
 
 Add your feeds:
 ```ruby
-GTFS::Realtime::configure([{name: 'feed_name', trip_updates_feed: 'xxx', vehicle_positions_feed: 'xxx', service_alerts_feed: 'xxx', interval_seconds: '###'}])
+GTFS::Realtime.configure([{name: 'feed_name', trip_updates_feed: 'xxx', vehicle_positions_feed: 'xxx', service_alerts_feed: 'xxx', interval_seconds: '###'}])
 ```
 
 where you pass to `configure` an array of hashes for all your feeds
@@ -39,6 +39,7 @@ Note: if you don't ping your feed in the same interval as you config you can't r
 
 ## Limitations
 
+* Assumes all feeds have a header gtfs_realtime_version of 1.0
 * Partitions are not configurable. All realtime tables are partitioned by feed, and a week of data.
 
 ## Development

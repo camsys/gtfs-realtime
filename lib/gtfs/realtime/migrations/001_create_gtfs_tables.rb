@@ -1,4 +1,4 @@
-class CreateGtfsTables < ActiveRecord::Migration[5.0]
+class CreateGTFSTables < ActiveRecord::Migration[5.0]
   def change
     create_table :gtfs_realtime_configurations do |t|
       t.string :name
