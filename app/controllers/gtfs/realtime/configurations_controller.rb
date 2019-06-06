@@ -13,7 +13,7 @@ module GTFS
 
       def show
         if params[:timestamp].blank?
-          timestamp = GTFS::Realtime::TripUpdate.maximum(:feed_timestamp)
+          timestamp = GTFS::Realtime::TripUpdate.from_partition(@config.id).maximum(:feed_timestamp)
         else
           timestamp = Time.at(params[:timestamp].to_i)
         end
@@ -44,20 +44,28 @@ module GTFS
           Transit_realtime::FeedEntity.new(id: trip_update_row.id, trip_update: trip_update)
         end
 
-        feed_header = Transit_realtime::FeedHeader.new(timestamp: timestamp.to_i)
+        feed_header = Transit_realtime::FeedHeader.new(timestamp: timestamp.to_i, gtfs_realtime_version: '1.0') # assume gtfs realtime version
         feed_message = Transit_realtime::FeedMessage.new(header: feed_header, entity: entities)
 
         unless params[:debug]
           if feed_message.present? && entities.count > 0
-            feed_file = Tempfile.new "tripUpdates", "#{Rails.root}/tmp"
-            ObjectSpace.undefine_finalizer(feed_file)
-            begin
-              feed_file << feed_message.encode
-            rescue => ex
-              Rails.logger.warn ex
-            ensure
-              feed_file.close
-            end
+
+            # not working
+            #feed_file = File.open("tripUpdates", "wb")
+            #feed_file.binmode
+            #feed_file << feed_message.encode
+            #feed_file.close
+
+            # feed_file = Tempfile.new "tripUpdates", "#{Rails.root}/tmp"
+            # ObjectSpace.undefine_finalizer(feed_file)
+            # feed_file.binmode
+            # begin
+            #   feed_file.write feed_message.encode
+            # rescue => ex
+            #   Rails.logger.warn ex
+            # ensure
+            #   feed_file.close
+            # end
 
 
             send_file feed_file.path
