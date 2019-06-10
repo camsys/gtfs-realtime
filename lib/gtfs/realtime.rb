@@ -329,6 +329,7 @@ module GTFS
               {
                 configuration_id: config.id,
                 interval_seconds: 0,
+                id: vehicle.id.to_s.strip,
                 trip_id: vehicle.vehicle.trip.trip_id.to_s.strip,
                 stop_id: vehicle.vehicle.stop_id.to_s.strip,
                 latitude: vehicle.vehicle.position.try(:latitude).try(:to_f),
@@ -346,6 +347,7 @@ module GTFS
               {
                 configuration_id: config.id,
                 interval_seconds: 0,
+                id: service_alert.id.to_s.strip,
                 stop_id: service_alert.alert.informed_entity.first.stop_id.to_s.strip,
                 header_text: service_alert.alert.header_text.translation.first.text,
                 description_text: service_alert.alert.description_text.translation.first.text,

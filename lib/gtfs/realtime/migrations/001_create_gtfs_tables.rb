@@ -76,7 +76,7 @@ class CreateGTFSTables < ActiveRecord::Migration[5.0]
       t.timestamp :departure_time
     end
 
-    create_table :gtfs_realtime_vehicle_positions, id: false do |t|
+    create_table :gtfs_realtime_vehicle_positions do |t|
       t.integer :configuration_id, index: true
       t.timestamp :feed_timestamp
       t.integer :interval_seconds
@@ -87,8 +87,9 @@ class CreateGTFSTables < ActiveRecord::Migration[5.0]
       t.float :bearing
       t.timestamp :timestamp
     end
+    change_column :gtfs_realtime_vehicle_positions, :id, :string
 
-    create_table :gtfs_realtime_service_alerts, id: false do |t|
+    create_table :gtfs_realtime_service_alerts do |t|
       t.integer :configuration_id, index: true
       t.timestamp :feed_timestamp
       t.integer :interval_seconds
@@ -98,5 +99,6 @@ class CreateGTFSTables < ActiveRecord::Migration[5.0]
       t.timestamp :start_time
       t.timestamp :end_time
     end
+    change_column :gtfs_realtime_service_alerts, :id, :string
   end
 end
