@@ -47,7 +47,7 @@ module GTFS
         @vehicle_positions.each do |vehicle_position_row|
           trip = Transit_realtime::TripDescriptor.new(trip_id: vehicle_position_row.trip_id)
 
-          vehicle_position = Transit_realtime::VehiclePosition.new(trip: trip, stop_id: vehicle_position_row.stop_id, timestamp: vehicle_position_row.timestamp)
+          vehicle_position = Transit_realtime::VehiclePosition.new(trip: trip, stop_id: vehicle_position_row.stop_id, timestamp: vehicle_position_row.timestamp.to_i)
           vehicle_position.position = Transit_realtime::Position.new(latitude: vehicle_position_row.latitude, longitude: vehicle_position_row.longitude, bearing: vehicle_position_row.bearing) unless vehicle_position_row.latitude.blank? && vehicle_position_row.longitude.blank? && vehicle_position_row.bearing.blank?
 
           entity_idx = entities.index{|x| x.id == vehicle_position_row.id}
@@ -63,7 +63,7 @@ module GTFS
           informed_entity = Transit_realtime::EntitySelector.new(stop_id: alert_row.stop_id)
           header_text = Transit_realtime::TranslatedString.new(translation: [Transit_realtime::TranslatedString::Translation.new(text: alert_row.header_text)])
           description_text = Transit_realtime::TranslatedString.new(translation: [Transit_realtime::TranslatedString::Translation.new(text: alert_row.description_text)])
-          active_period = Transit_realtime::TimeRange.new(start: alert_row.start_time, end: alert_row. end_time)
+          active_period = Transit_realtime::TimeRange.new(start: alert_row.start_time.to_i, end: alert_row.end_time.to_i)
 
           alert = Transit_realtime::Alert.new(active_period: [active_period], informed_entity: [informed_entity], header_text: header_text, description_text: description_text)
 
