@@ -2,6 +2,7 @@ class CreateGTFSTables < ActiveRecord::Migration[5.0]
   def change
     create_table :gtfs_realtime_configurations do |t|
       t.string :name
+      t.string :handler
       t.string :static_feed
       t.string :trip_updates_feed
       t.string :vehicle_positions_feed
