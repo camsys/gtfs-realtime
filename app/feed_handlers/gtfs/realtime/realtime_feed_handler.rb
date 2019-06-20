@@ -275,7 +275,7 @@ module GTFS
           data = Net::HTTP.get(URI.parse(path))
         end
 
-        TransitRealtime::FeedMessage.decode(data)
+        TransitRealtime::FeedMessage.parse(data)
       end
 
 

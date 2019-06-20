@@ -85,7 +85,7 @@ module GTFS
             feed_file = Tempfile.new "tripUpdates", "#{Rails.root}/tmp", encoding: 'ascii-8bit'
             ObjectSpace.undefine_finalizer(feed_file)
             begin
-              feed_file << feed_message.encode
+              feed_file << feed_message.serialize_to_string
             rescue => ex
               Rails.logger.warn ex
             ensure
@@ -95,6 +95,8 @@ module GTFS
             send_file feed_file.path
           }
           format.json { render json: feed_message }
+
+          Transit_realtime::FeedMessage.new.encode
         end
       end
 
