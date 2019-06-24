@@ -4,9 +4,6 @@ module GTFS
 
       belongs_to :configuration
 
-      belongs_to :trip
-      belongs_to :route
-
       partitioned do |partition|
         partition.index :trip_id
       end

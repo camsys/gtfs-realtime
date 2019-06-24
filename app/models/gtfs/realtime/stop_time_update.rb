@@ -4,10 +4,7 @@ module GTFS
 
       belongs_to :configuration
 
-      belongs_to :stop
       belongs_to :trip_update
-      has_one :trip, through: :trip_update
-      has_one :route, through: :trip_update
 
       partitioned do |partition|
         partition.index :trip_update_id

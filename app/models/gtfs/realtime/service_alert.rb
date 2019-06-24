@@ -4,8 +4,6 @@ module GTFS
 
       belongs_to :configuration
 
-      belongs_to :stop
-
       partitioned do |partition|
         partition.index :stop_id
       end

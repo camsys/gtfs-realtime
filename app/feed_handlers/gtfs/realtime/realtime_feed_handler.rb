@@ -10,9 +10,8 @@ module GTFS
         self.previous_feeds = previous_feeds
       end
 
-      def pre_process(model_name, previous_feed_time, current_feed_time)
-        puts previous_feed_time
-        puts current_feed_time
+      def pre_process(model_name, previous_feed_time, current_feed_time, feed_file)
+
         # check if need to create new partition
         if current_feed_time.try(:at_beginning_of_week) != previous_feed_time.try(:at_beginning_of_week)
           klass = "GTFS::Realtime::#{model_name}".constantize
@@ -22,6 +21,10 @@ module GTFS
             GTFS::Realtime::StopTimeUpdate.create_new_partition_tables([[@gtfs_realtime_configuration.id, current_feed_time.at_beginning_of_week]]) unless GTFS::Realtime::StopTimeUpdate.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
           end
         end
+
+
+        # save the feed file
+        GTFS::Realtime::Feed.create(configuration_id: @gtfs_realtime_configuration.id, feed_timestamp: current_feed_time, model_name: model_name, feed_file: feed_file)
       end
 
       def post_process(model_name,feed)
@@ -49,7 +52,7 @@ module GTFS
         current_feed_time_without_timezone = Time.zone.at(current_feed_time.to_i) # used as string in query
 
 
-        pre_process('TripUpdate', previous_feed_time, current_feed_time)
+        pre_process('TripUpdate', previous_feed_time, current_feed_time, feed)
 
         # (Simple) Logic to pulling feed data:
         #
@@ -71,7 +74,7 @@ module GTFS
                     configuration_id: @gtfs_realtime_configuration.id,
                     interval_seconds: 0,
                     feed_timestamp: current_feed_time
-                }.merge(get_trip_update_hash(trip_update))
+                }.merge(trip_update_to_database_attributes(trip_update))
               end
           )
 
@@ -83,7 +86,7 @@ module GTFS
                       trip_update_id: trip_update.id.to_s.strip,
                       interval_seconds: 0,
                       feed_timestamp: current_feed_time
-                  }.merge(get_stop_time_update_hash(stop_time_update))
+                  }.merge(stop_time_update_to_database_attributes(stop_time_update))
                 end
               end.flatten
           )
@@ -105,7 +108,7 @@ module GTFS
                     configuration_id: @gtfs_realtime_configuration.id,
                     interval_seconds: 0,
                     feed_timestamp: current_feed_time
-                }.merge(get_trip_update_hash(trip_update))
+                }.merge(trip_update_to_database_attributes(trip_update))
               end
           )
 
@@ -116,7 +119,7 @@ module GTFS
                     configuration_id: @gtfs_realtime_configuration.id,
                     feed_timestamp: previous_feed_time,
                     interval_seconds: @gtfs_realtime_configuration.interval_seconds
-                }.merge(get_trip_update_hash(trip_update))
+                }.merge(trip_update_to_database_attributes(trip_update))
               end,
               {
                   set_array: '"'+ "feed_timestamp ='#{current_feed_time_without_timezone}', interval_seconds = \#{table_name}.interval_seconds + datatable.interval_seconds"+'"',
@@ -132,7 +135,7 @@ module GTFS
                   trip_update_id: trip_update.id.to_s.strip,
                   interval_seconds: 0,
                   feed_timestamp: current_feed_time
-              }.merge(get_stop_time_update_hash(stop_time_update))
+              }.merge(stop_time_update_to_database_attributes(stop_time_update))
 
             end
           end.flatten
@@ -145,8 +148,8 @@ module GTFS
             # get all new stop time updates that weren't in previously processed feed
             # order by departure time
             # convert all stop time updates to hashes for easy comparison
-            prev_stop_time_updates = @previous_feeds[:trip_updates_feed].entity.find{|x| x.id.to_s.strip == trip_update.id.to_s.strip}.trip_update.stop_time_update.sort_by { |x| x.departure&.time || 0 }.map{|x| get_stop_time_update_hash(x)}
-            stop_time_updates = trip_update.trip_update.stop_time_update.sort_by { |x| x.departure&.time || 0 }.map{|x| get_stop_time_update_hash(x)}
+            prev_stop_time_updates = @previous_feeds[:trip_updates_feed].entity.find{|x| x.id.to_s.strip == trip_update.id.to_s.strip}.trip_update.stop_time_update.sort_by { |x| x.departure&.time || 0 }.map{|x| stop_time_update_to_database_attributes(x)}
+            stop_time_updates = trip_update.trip_update.stop_time_update.sort_by { |x| x.departure&.time || 0 }.map{|x| stop_time_update_to_database_attributes(x)}
             new_stop_time_updates = stop_time_updates - prev_stop_time_updates
 
             all_new_stop_time_updates +=
@@ -211,7 +214,7 @@ module GTFS
         previous_feed_time = Time.at(@previous_feeds[:vehicle_positions_feed].header.timestamp) unless @previous_feeds[:vehicle_positions_feed].nil?
         current_feed_time = Time.at(vehicle_positions_header.timestamp) unless vehicle_positions_header.nil?
 
-        pre_process('VehiclePosition', previous_feed_time, current_feed_time)
+        pre_process('VehiclePosition', previous_feed_time, current_feed_time, feed)
 
         # this data is partitioned but not checked for duplicates currently
         GTFS::Realtime::VehiclePosition.create_many(
@@ -220,8 +223,9 @@ module GTFS
                   configuration_id: @gtfs_realtime_configuration.id,
                   interval_seconds: 0,
                   id: vehicle.id.to_s.strip,
-                  label: vehicle.label.to_s.strip,
-                  license_plate: vehicle.license_plate.to_s.strip,
+                  vehicle_id: vehicle.vehicle.vehicle.id.to_s.strip,
+                  label: vehicle.vehicle.vehicle.label.to_s.strip,
+                  license_plate: vehicle.vehicle.vehicle.license_plate.to_s.strip,
                   trip_id: vehicle.vehicle.trip.trip_id.to_s.strip,
                   route_id: vehicle.vehicle.trip.route_id.to_s.strip,
                   direction_id: vehicle.vehicle.trip.direction_id,
@@ -255,7 +259,7 @@ module GTFS
         previous_feed_time = Time.at(@previous_feeds[:service_alerts_feed].header.timestamp) unless @previous_feeds[:service_alerts_feed].nil?
         current_feed_time = Time.at(service_alerts_header.timestamp) unless service_alerts_header.nil?
 
-        pre_process('ServiceAlert', previous_feed_time, current_feed_time)
+        pre_process('ServiceAlert', previous_feed_time, current_feed_time, feed)
 
         new_alerts = []
 
@@ -293,6 +297,74 @@ module GTFS
         post_process('ServiceAlert', feed)
       end
 
+
+      def recreate(opts)
+        if opts[:timestamp].blank?
+          timestamp = GTFS::Realtime::TripUpdate.from_partition(@config.id).maximum(:feed_timestamp)
+        else
+          timestamp = Time.at(opts[:timestamp].to_i)
+        end
+
+
+        @trip_updates = GTFS::Realtime::TripUpdate.from_partition(@config.id, timestamp.at_beginning_of_week).where("(feed_timestamp - (interval_seconds * interval '1 second')) <= ? AND ? <= feed_timestamp", timestamp, timestamp)
+        @stop_time_updates = GTFS::Realtime::StopTimeUpdate.from_partition(@config.id, timestamp.at_beginning_of_week).where("(feed_timestamp - (interval_seconds * interval '1 second')) <= ? AND ? <= feed_timestamp", timestamp, timestamp)
+        @vehicle_positions = GTFS::Realtime::VehiclePosition.from_partition(@config.id, timestamp.at_beginning_of_week).where("(feed_timestamp - (interval_seconds * interval '1 second')) <= ? AND ? <= feed_timestamp", timestamp, timestamp)
+        @service_alerts = GTFS::Realtime::ServiceAlert.from_partition(@config.id, timestamp.at_beginning_of_week).where("(feed_timestamp - (interval_seconds * interval '1 second')) <= ? AND ? <= feed_timestamp", timestamp, timestamp)
+
+        entities = @trip_updates.collect do |trip_update_row|
+
+          trip = TransitRealtime::TripDescriptor.new(trip_id: trip_update_row.trip_id, route_id: trip_update_row.route_id, direction_id: trip_update_row.direction_id, start_time: trip_update_row.start_time, start_date: trip_update_row.start_date, schedule_relationship: trip_update_row.schedule_relationship)
+          vehicle = TransitRealtime::VehicleDescriptor.new(id: trip_update_row.vehicle_id, label: trip_update_row.vehicle_label, license_plate: trip_update_row.license_plate)
+          stop_time_updates = @stop_time_updates.where(trip_update_id: trip_update_row.id).collect do |stop_time_update|
+            stop_time_update_from_database_attributes(stop_time_update)
+          end
+          trip_update = trip_update_from_database_attributes(trip_update_row)
+          trip_update.stop_time_updates = stop_time_updates
+          TransitRealtime::FeedEntity.new(id: trip_update_row.id, trip_update: trip_update)
+        end
+
+
+        @vehicle_positions.each do |vehicle_position_row|
+          trip = TransitRealtime::TripDescriptor.new(trip_id: vehicle_position_row.trip_id, route_id: vehicle_position_row.route_id, direction_id: vehicle_position_row.direction_id, start_time: vehicle_position_row.start_time, start_date: vehicle_position_row.start_date, schedule_relationship: vehicle_position_row.schedule_relationship)
+          vehicle = TransitRealtime::VehicleDescriptor.new(id: vehicle_position_row.vehicle_id, label: vehicle_position_row.vehicle_label, license_plate: vehicle_position_row.license_plate)
+          vehicle_position = TransitRealtime::VehiclePosition.new(trip: trip, vehicle: vehicle, current_stop_sequence: vehicle_position_row.current_stop_sequence, stop_id: vehicle_position_row.stop_id, current_status: vehicle_position_row.current_status, timestamp: vehicle_position_row.timestamp.to_i, congestion_level: vehicle_position_row.congestion_level, occupancy_status: vehicle_position_row.occupancy_status)
+          vehicle_position.position = TransitRealtime::Position.new(latitude: vehicle_position_row.latitude, longitude: vehicle_position_row.longitude, bearing: vehicle_position_row.bearing, odometer: vehicle_position_row.odometer, speed: vehicle_position_row.speed)
+
+          entity_idx = entities.index{|x| x.id == vehicle_position_row.id}
+          if entity_idx.nil?
+            entities << TransitRealtime::FeedEntity.new(id: vehicle_position_row.id, vehicle: vehicle_position)
+          else
+            entities[entity_idx].vehicle = vehicle_position
+          end
+
+        end
+
+
+        @service_alerts.each do |alert_row|
+          trip = TransitRealtime::TripDescriptor.new(trip_id: alert_row.trip_id, route_id: alert_row.route_id, direction_id: alert_row.direction_id, start_time: alert_row.start_time, start_date: alert_row.start_date, schedule_relationship: alert_row.schedule_relationship)
+          informed_entity = TransitRealtime::EntitySelector.new(agency_id: alert_row.agency_id, route_id: alert_row.route_id, route_type: alert_row.route_type, trip: trip, stop_id: alert_row.stop_id)
+
+          url = TransitRealtime::TranslatedString.new(translation: [TransitRealtime::TranslatedString::Translation.new(text: alert_row.url)])
+          header_text = TransitRealtime::TranslatedString.new(translation: [TransitRealtime::TranslatedString::Translation.new(text: alert_row.header_text)])
+          description_text = TransitRealtime::TranslatedString.new(translation: [TransitRealtime::TranslatedString::Translation.new(text: alert_row.description_text)])
+          active_period = TransitRealtime::TimeRange.new(start: alert_row.start_time.to_i, end: alert_row.end_time.to_i)
+
+          alert = TransitRealtime::Alert.new(active_period: [active_period], informed_entity: [informed_entity], cause: alert_row.cause, effect: alert_row.effect, url: url, header_text: header_text, description_text: description_text)
+
+          entity_idx = entities.index{|x| x.id == alert_row.id}
+          if entity_idx.nil?
+            entities << TransitRealtime::FeedEntity.new(id: alert_row.id, alert: alert)
+          else
+            entities[entity_idx].alert = alert
+          end
+
+        end
+
+        feed_header = TransitRealtime::FeedHeader.new(timestamp: timestamp.to_i, gtfs_realtime_version: '1.0') # assume gtfs realtime version
+
+        return TransitRealtime::FeedMessage.new(header: feed_header, entity: entities)
+      end
+
       private
 
       def get_feed(path)
@@ -308,7 +380,7 @@ module GTFS
       end
 
 
-      def get_trip_update_hash(trip_update)
+      def trip_update_to_database_attributes(trip_update)
         {
             id: trip_update.id.to_s.strip,
             trip_id: trip_update.trip_update.trip.trip_id.to_s.strip,
@@ -320,11 +392,19 @@ module GTFS
             vehicle_id: trip_update.trip_update.vehicle.id.to_s.strip,
             vehicle_label: trip_update.trip_update.vehicle.label.to_s.strip,
             license_plate: trip_update.trip_update.vehicle.license_plate.to_s.strip,
-            timestamp: trip_update.trip_update.timestamp
+            timestamp: trip_update.trip_update.timestamp,
+            delay: trip_update.trip_update.delay
         }
       end
 
-      def get_stop_time_update_hash(stop_time_update)
+      def trip_update_from_database_attributes(trip_update_row)
+        trip = TransitRealtime::TripDescriptor.new(trip_id: trip_update_row.trip_id, route_id: trip_update_row.route_id, direction_id: trip_update_row.direction_id, start_time: trip_update_row.start_time, start_date: trip_update_row.start_date, schedule_relationship: trip_update_row.schedule_relationship)
+        vehicle = TransitRealtime::VehicleDescriptor.new(id: trip_update_row.vehicle_id, label: trip_update_row.vehicle_label, license_plate: trip_update_row.license_plate)
+
+        TransitRealtime::TripUpdate.new(trip: trip, vehicle: vehicle,timestamp: trip_update_row.timestamp, delay: trip_update_row.delay)
+      end
+
+      def stop_time_update_to_database_attributes(stop_time_update)
         {
             stop_id: stop_time_update.stop_id.to_s.strip,
             stop_sequence: stop_time_update.stop_sequence,
@@ -337,6 +417,20 @@ module GTFS
             departure_uncertainty: stop_time_update.departure&.uncertainty,
         }
       end
+
+      def stop_time_update_from_data(stop_time_update)
+        arrival = TransitRealtime::TripUpdate::StopTimeEvent.new(time: stop_time_update.arrival_time.to_i, delay: stop_time_update.arrival_delay, uncertainty: stop_time_update.arrival_certainty)
+        departure = TransitRealtime::TripUpdate::StopTimeEvent.new(time: stop_time_update.departure_time.to_i, delay: stop_time_update.departure_delay, uncertainty: stop_time_update.departure_certainty)
+
+        TransitRealtime::TripUpdate::StopTimeUpdate.new(
+            stop_sequence: stop_time_update.stop_sequence,
+            stop_id: stop_time_update.stop_id,
+            arrival: arrival,
+            departure: departure,
+            schedule_relationship: stop_time_update.schedule_relationship
+        )
+      end
+
     end
   end
 end

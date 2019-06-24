@@ -3,6 +3,10 @@ require "active_record"
 require "bulk_insert"
 require "partitioned"
 require "gtfs/gtfs_gem_patch"
+
+require 'carrierwave'
+require 'fog/aws'
+
 require 'gtfs/realtime/engine'
 
 require "gtfs/realtime/version"

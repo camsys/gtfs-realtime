@@ -24,6 +24,7 @@ class CreateGTFSTables < ActiveRecord::Migration[5.0]
       t.string :vehicle_label
       t.string :license_plate
       t.timestamp :timestamp
+      t.integer :delay
     end
     change_column :gtfs_realtime_trip_updates, :id, :string
 
@@ -47,6 +48,7 @@ class CreateGTFSTables < ActiveRecord::Migration[5.0]
       t.integer :configuration_id, index: true
       t.timestamp :feed_timestamp
       t.integer :interval_seconds
+      t.string :vehicle_id
       t.string :vehicle_label
       t.string :license_plate
       t.string :trip_id, index: true
@@ -91,5 +93,12 @@ class CreateGTFSTables < ActiveRecord::Migration[5.0]
       t.timestamp :end_time
     end
     change_column :gtfs_realtime_service_alerts, :id, :string
+
+    create_table :gtfs_realtime_feeds do |t|
+      t.integer :configuration_id, index: true
+      t.itmestamp :feed_timestamp
+      t.string :model_name
+      t.string :feed_file
+    end
   end
 end
