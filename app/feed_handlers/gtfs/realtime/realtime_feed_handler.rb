@@ -220,11 +220,24 @@ module GTFS
                   configuration_id: @gtfs_realtime_configuration.id,
                   interval_seconds: 0,
                   id: vehicle.id.to_s.strip,
+                  label: vehicle.label.to_s.strip,
+                  license_plate: vehicle.license_plate.to_s.strip,
                   trip_id: vehicle.vehicle.trip.trip_id.to_s.strip,
+                  route_id: vehicle.vehicle.trip.route_id.to_s.strip,
+                  direction_id: vehicle.vehicle.trip.direction_id,
+                  start_time: vehicle.vehicle.trip.start_time.to_s.strip,
+                  start_date: vehicle.vehicle.trip.start_date.to_s.strip,
+                  schedule_relationship: vehicle.vehicle.trip.schedule_relationship,
+                  current_stop_sequence: vehicle.vehicle.trip.current_stop_sequence,
+                  current_status: vehicle.vehicle.current_status,
+                  congestion_level: vehicle.vehicle.congestion_level,
+                  occupancy_status: vehicle.vehicle.occupancy_status,
                   stop_id: vehicle.vehicle.stop_id.to_s.strip,
                   latitude: vehicle.vehicle.position.try(:latitude).try(:to_f),
                   longitude: vehicle.vehicle.position.try(:longitude).try(:to_f),
                   bearing: vehicle.vehicle.position.try(:bearing).try(:to_f),
+                  odomoter: vehicle.vehicle.position.try(:odometer).try(:to_f),
+                  speed: vehicle.vehicle.position.try(:speed).try(:to_f),
                   timestamp: Time.at(vehicle.vehicle.timestamp),
                   feed_timestamp: current_feed_time
               }
@@ -244,22 +257,38 @@ module GTFS
 
         pre_process('ServiceAlert', previous_feed_time, current_feed_time)
 
+        new_alerts = []
+
+        service_alerts.each do |service_alert|
+          service_alert.active_period.each_with_index do |active_period,idx|
+            new_alerts << {
+                configuration_id: @gtfs_realtime_configuration.id,
+                interval_seconds: 0,
+                id: service_alert.id.to_s.strip,
+                agency_id: service_alert.alert.informed_entity[idx].agency_id.to_s.strip,
+                route_id: service_alert.alert.informed_entity[idx].route_id.to_s.strip,
+                route_type: service_alert.alert.informed_entity[idx].route_type,
+                trip_id: service_alert.alert.informed_entity[idx].trip.trip_id.to_s.strip,
+                direction_id: service_alert.alert.informed_entity[idx].trip.direction_id,
+                start_time: service_alert.alert.informed_entity[idx].trip.start_time.to_s.strip,
+                start_date: service_alert.alert.informed_entity[idx].trip.start_date.to_s.strip,
+                schedule_relationship: service_alert.alert.informed_entity[idx].trip.schedule_relationship,
+                current_stop_sequence: service_alert.alert.informed_entity[idx].trip.current_stop_sequence,
+                stop_id: service_alert.alert.informed_entity[idx].stop_id.to_s.strip,
+                cause: service_alert.alert.cause,
+                effect: service_alert.alert.effect,
+                url: service_alert.alert.url.translation.first.text,
+                header_text: service_alert.alert.header_text.translation.first.text,
+                description_text: service_alert.alert.description_text.translation.first.text,
+                start_time: Time.at(active_period.start),
+                end_time: Time.at(active_period.end),
+                feed_timestamp: current_feed_time
+            }
+          end
+        end
+
         # this data is partitioned but not checked for duplicates currently
-        GTFS::Realtime::ServiceAlert.create_many(
-            service_alerts.collect do |service_alert|
-              {
-                  configuration_id: @gtfs_realtime_configuration.id,
-                  interval_seconds: 0,
-                  id: service_alert.id.to_s.strip,
-                  stop_id: service_alert.alert.informed_entity.first.stop_id.to_s.strip,
-                  header_text: service_alert.alert.header_text.translation.first.text,
-                  description_text: service_alert.alert.description_text.translation.first.text,
-                  start_time: Time.at(service_alert.alert.active_period.first.start),
-                  end_time: Time.at(service_alert.alert.active_period.first.end),
-                  feed_timestamp: current_feed_time
-              }
-            end
-        )
+        GTFS::Realtime::ServiceAlert.create_many(new_alerts)
 
         post_process('ServiceAlert', feed)
       end
@@ -283,17 +312,29 @@ module GTFS
         {
             id: trip_update.id.to_s.strip,
             trip_id: trip_update.trip_update.trip.trip_id.to_s.strip,
-            route_id: trip_update.trip_update.trip.route_id.to_s.strip
+            route_id: trip_update.trip_update.trip.route_id.to_s.strip,
+            direction_id: trip_update.trip_update.direction_id,
+            start_time: trip_update.trip_update.start_time.to_s.strip,
+            start_date: trip_update.trip_update.start_date.to_s.strip,
+            schedule_relationship: trip_update.trip_update.schedule_relationship,
+            vehicle_id: trip_update.trip_update.vehicle.id.to_s.strip,
+            vehicle_label: trip_update.trip_update.vehicle.label.to_s.strip,
+            license_plate: trip_update.trip_update.vehicle.license_plate.to_s.strip,
+            timestamp: trip_update.trip_update.timestamp
         }
       end
 
       def get_stop_time_update_hash(stop_time_update)
         {
             stop_id: stop_time_update.stop_id.to_s.strip,
+            stop_sequence: stop_time_update.stop_sequence,
+            schedule_relationship: stop_time_update.schedule_relationship,
             arrival_delay: stop_time_update.arrival&.delay,
             arrival_time: (stop_time_update.arrival&.time&.> 0) ? Time.at(stop_time_update.arrival.time) : nil,
+            arrival_uncertainty: stop_time_update.arrival&.uncertainty,
             departure_delay: stop_time_update.departure&.delay,
             departure_time: (stop_time_update.departure&.time&.> 0) ? Time.at(stop_time_update.departure.time) : nil,
+            departure_uncertainty: stop_time_update.departure&.uncertainty,
         }
       end
     end
