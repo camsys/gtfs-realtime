@@ -13,7 +13,7 @@ module GTFS
 
       def show
 
-        if config.handler.present?
+        if @config.handler.present?
           klass = @config.handler.constantize
           transit_realtime_file = klass::TRANSIT_REALTIME_FILE
         else
