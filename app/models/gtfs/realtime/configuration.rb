@@ -11,6 +11,8 @@ module GTFS
         GTFS::Realtime::StopTimeUpdate.create_new_partition_tables([self.id])
         GTFS::Realtime::VehiclePosition.create_new_partition_tables([self.id])
         GTFS::Realtime::ServiceAlert.create_new_partition_tables([self.id])
+
+        GTFS::Realtime::Feed.create_new_partition_tables([self.id])
       end
 
     end

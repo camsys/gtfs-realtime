@@ -28,11 +28,16 @@ Gem::Specification.new do |spec|
   spec.add_development_dependency "webmock"
   spec.add_development_dependency 'combustion', '~> 1.1'
 
-  spec.add_dependency "gtfs-realtime-bindings"
+  #spec.add_dependency "gtfs-realtime-bindings"
+  spec.add_dependency "google-protobuf"
+  spec.add_dependency 'ruby-protocol-buffers'
   spec.add_dependency "gtfs"
   spec.add_dependency "protobuf", "< 3.7"
   spec.add_dependency "activerecord", '~> 5.1.7'
   spec.add_dependency "bulk_insert"
 
   spec.add_dependency "partitioned"
+
+  spec.add_dependency "carrierwave"
+  spec.add_dependency "fog"
 end
