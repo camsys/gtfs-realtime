@@ -19,7 +19,7 @@ class CreateGTFSTables < ActiveRecord::Migration[5.0]
       t.integer :direction_id
       t.string :start_time
       t.string :start_date
-      t.string :schedule_relationship
+      t.integer :schedule_relationship
       t.string :vehicle_id
       t.string :vehicle_label
       t.string :license_plate
@@ -35,7 +35,7 @@ class CreateGTFSTables < ActiveRecord::Migration[5.0]
       t.string :trip_update_id, index: true
       t.string :stop_id, index: true
       t.integer :stop_sequence
-      t.string :schedule_relationship
+      t.integer :schedule_relationship
       t.integer :arrival_delay
       t.timestamp :arrival_time
       t.integer :arrival_uncertainty
@@ -56,12 +56,12 @@ class CreateGTFSTables < ActiveRecord::Migration[5.0]
       t.integer :direction_id
       t.string :start_time
       t.string :start_date
-      t.string :schedule_relationship
+      t.integer :schedule_relationship
       t.string :stop_id, index: true
       t.integer :current_stop_sequence
-      t.string :current_status
-      t.string :congestion_level
-      t.string :occupancy_status
+      t.integer :current_status
+      t.integer :congestion_level
+      t.integer :occupancy_status
       t.float :latitude
       t.float :longitude
       t.float :bearing
@@ -82,10 +82,11 @@ class CreateGTFSTables < ActiveRecord::Migration[5.0]
       t.integer :direction_id
       t.string :start_time
       t.string :start_date
-      t.string :schedule_relationship
+      t.integer :schedule_relationship
       t.string :stop_id, index: true
-      t.string :cause
-      t.string :effect
+      t.integer :cause
+      t.integer :effect
+      t.integer :severity_level
       t.string :url
       t.string :header_text
       t.text :description_text
@@ -96,8 +97,8 @@ class CreateGTFSTables < ActiveRecord::Migration[5.0]
 
     create_table :gtfs_realtime_feeds do |t|
       t.integer :configuration_id, index: true
-      t.itmestamp :feed_timestamp
-      t.string :model_name
+      t.timestamp :feed_timestamp
+      t.string :class_name
       t.string :feed_file
     end
   end

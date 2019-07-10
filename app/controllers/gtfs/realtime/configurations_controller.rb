@@ -44,8 +44,6 @@ module GTFS
             send_file feed_file.path
           }
           format.json { render json: feed_message }
-
-          TransitRealtime::FeedMessage.new.encode
         end
       end
 

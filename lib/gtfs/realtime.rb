@@ -20,7 +20,7 @@ module GTFS
 
       # this method is run to add feeds
       def configure(new_configurations=[])
-        run__migrations
+        run_migrations
 
         new_configurations.each do |config|
           GTFS::Realtime::Configuration.create!(config) unless GTFS::Realtime::Configuration.find_by(name: config[:name])
