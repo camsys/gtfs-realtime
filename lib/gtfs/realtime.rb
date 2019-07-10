@@ -5,7 +5,7 @@ require "partitioned"
 require "gtfs/gtfs_gem_patch"
 
 require 'carrierwave'
-require 'fog/aws'
+require 'fog'
 
 require 'gtfs/realtime/engine'
 
