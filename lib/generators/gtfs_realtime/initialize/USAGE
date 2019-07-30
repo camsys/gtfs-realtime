@@ -1,0 +1,11 @@
+Description:
+    Adds Crono Jobs (cron jobs for Rails) for GTFS-RT feeds
+
+Example:
+    rails generate gtfs_realtime:initialize
+
+    This will create:
+        app/jobs
+
+    This will append:
+        cronotab.rb
