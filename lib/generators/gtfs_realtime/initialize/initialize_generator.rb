@@ -6,8 +6,8 @@ module GtfsRealtime
       GTFS::Realtime::Configuration.all.each do |config|
 
 
-        create_file "app/jobs/#{config.name.gsub(' ', '').downcase}_job.rb", <<-FILE
-class #{config.name.gsub(' ', '')}Job
+        create_file "app/jobs/#{config.name.gsub(' ', '').underscore}_job.rb", <<-FILE
+class #{config.name.gsub(' ', '').classify}Job
   def perform
     GTFS::Realtime.refresh_realtime_feed!(GTFS::Realtime::Configuration.find_by(name: '#{config.name}'), false)
   end
@@ -19,7 +19,7 @@ end
     def setup_cronotab
       GTFS::Realtime::Configuration.all.each do |config|
         append_to_file 'config/cronotab.rb', <<-RUBY
-Crono.perform(#{config.name.gsub(' ', '')}Job).every #{config.interval_seconds}.seconds
+Crono.perform(#{config.name.gsub(' ', '').classify}Job).every #{config.interval_seconds}.seconds
         RUBY
       end
     end

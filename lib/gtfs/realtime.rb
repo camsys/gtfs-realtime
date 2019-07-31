@@ -40,17 +40,8 @@ module GTFS
 
         if config.handler.present?
           klass = config.handler.constantize
-          transit_realtime_file = klass::TRANSIT_REALTIME_FILE
         else
           klass = GTFS::Realtime::RealtimeFeedHandler
-          transit_realtime_file = 'gtfs-realtime-new.pb.rb'
-        end
-
-        if reload_transit_realtime
-          Object.send(:remove_const, :TransitRealtime) if Object.constants.include? :TransitRealtime
-          load transit_realtime_file
-        else
-          require transit_realtime_file
         end
 
         handler = klass.new(gtfs_realtime_configuration: config) # TODO figure out previous feeds
