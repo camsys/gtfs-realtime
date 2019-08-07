@@ -36,7 +36,9 @@ module GTFS
       def refresh_realtime_feed!(config, reload_transit_realtime=true)
 
         start_time = Time.now
-        puts "Starting GTFS-RT refresh for #{config.name} at #{start_time}."
+
+        Rails.logger.info "Starting GTFS-RT refresh for #{config.name} at #{start_time}."
+        Crono.logger.info "Starting GTFS-RT refresh for #{config.name} at #{start_time} in Crono." if Crono.logger
 
         if config.handler.present?
           klass = config.handler.constantize
@@ -49,7 +51,9 @@ module GTFS
           handler.process
         end # end of ActiveRecord transaction
 
-        puts "Finished GTFS-RT refresh for #{config.name} at #{Time.now}. Took #{Time.now - start_time} seconds."
+        Rails.logger.info "Finished GTFS-RT refresh for #{config.name} at #{Time.now}. Started #{start_time} and took #{Time.now - start_time} seconds in Crono."
+        Crono.logger.info "Finished GTFS-RT refresh for #{config.name} at #{Time.now}. Started #{start_time} and took #{Time.now - start_time} seconds in Crono." if Crono.logger
+
       end
 
       private

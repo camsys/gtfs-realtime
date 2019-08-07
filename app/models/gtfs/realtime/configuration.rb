@@ -4,6 +4,10 @@ module GTFS
 
       after_create :create_partitions
 
+      def to_s
+        name
+      end
+
       protected
 
       def create_partitions

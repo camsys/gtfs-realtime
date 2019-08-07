@@ -38,7 +38,11 @@ module GTFS
       end
 
       def post_process(class_name,feed)
-        cache_objects(@gtfs_realtime_configuration, class_name, feed)
+        if feed.nil?
+          clear_cached_objects(@gtfs_realtime_configuration, class_name)
+        else
+          cache_objects(@gtfs_realtime_configuration, class_name, feed)
+        end
       end
 
       def process
@@ -162,7 +166,8 @@ module GTFS
             # get all new stop time updates that weren't in previously processed feed
             # order by departure time
             # convert all stop time updates to hashes for easy comparison
-            prev_stop_time_updates = prev_trip_updates_feed.entity.find{|x| x.id.to_s.strip == trip_update.id.to_s.strip}.trip_update.stop_time_update.sort_by { |x| x.departure&.time || 0 }.map{|x| stop_time_update_to_database_attributes(x)}
+            prev = prev_trip_updates.find{|x| x.id.to_s.strip == trip_update.id.to_s.strip}
+            prev_stop_time_updates = prev.present? ? prev.trip_update.stop_time_update.sort_by { |x| x.departure&.time || 0 }.map{|x| stop_time_update_to_database_attributes(x)} : []
             stop_time_updates = trip_update.trip_update.stop_time_update.sort_by { |x| x.departure&.time || 0 }.map{|x| stop_time_update_to_database_attributes(x)}
             new_stop_time_updates = stop_time_updates - prev_stop_time_updates
 
@@ -416,9 +421,12 @@ module GTFS
 
       def get_feed(data)
         begin
-          TransitRealtime::FeedMessage.parse(data)
+          return TransitRealtime::FeedMessage.parse(data)
         rescue
           Rails.logger.info "Could not parse GTFS-RT file"
+          Crono.logger.info "Could not parse GTFS-RT file" if Crono.logger
+
+          return nil
         end
       end
 
@@ -426,7 +434,8 @@ module GTFS
       # Cache an object
       #-----------------------------------------------------------------------------
       def cache_objects(config, class_name, objects)
-        Rails.logger.debug "FeedHandler CACHE put for config #{config} #{class_name}"
+        Rails.logger.info "FeedHandler CACHE put for config #{config} #{class_name}"
+        Crono.logger.info "FeedHandler CACHE put for config #{config} #{class_name}" if Crono.logger
         Rails.cache.fetch(get_cache_key(config,class_name), :force => true) { objects }
       end
 
@@ -435,12 +444,20 @@ module GTFS
       # returned
       #-----------------------------------------------------------------------------
       def get_cached_objects(config,class_name)
-        Rails.logger.debug "FeedHandler CACHE get for key #{config} #{class_name}"
+        Rails.logger.info "FeedHandler CACHE get for key #{config} #{class_name}"
+        Crono.logger.info "FeedHandler CACHE get for key #{config} #{class_name}" if Crono.logger
         ret = Rails.cache.fetch(get_cache_key(config,class_name))
+
+        return ret
       end
 
       def get_cache_key(config,class_name)
         return "#{config.name}_#{class_name.tableize}_feed"
+      end
+
+      def clear_cached_objects(config,class_name)
+        Rails.logger.debug "ApplicationController CACHE clear for key #{config} #{class_name}"
+        Rails.cache.delete(get_cache_key(config,class_name))
       end
 
 
