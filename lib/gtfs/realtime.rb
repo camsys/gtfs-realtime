@@ -44,7 +44,7 @@ module GTFS
           klass = GTFS::Realtime::RealtimeFeedHandler
         end
 
-        handler = klass.new(gtfs_realtime_configuration: config) # TODO figure out previous feeds
+        handler = klass.new(gtfs_realtime_configuration: config)
         GTFS::Realtime::Model.transaction do
           handler.process
         end # end of ActiveRecord transaction

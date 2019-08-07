@@ -3,11 +3,9 @@ module GTFS
     class RealtimeFeedHandler
 
       attr_accessor :gtfs_realtime_configuration
-      attr_accessor :previous_feeds
 
-      def initialize(gtfs_realtime_configuration: GTFS::Realtime::Configuration.new, previous_feeds: {trip_updates_feed: nil, vehicle_positions_feed: nil, service_alerts_feed: nil})
+      def initialize(gtfs_realtime_configuration: GTFS::Realtime::Configuration.new)
         self.gtfs_realtime_configuration = gtfs_realtime_configuration
-        self.previous_feeds = previous_feeds
       end
 
       def pre_process(class_name, previous_feed_time, current_feed_time, feed_file)
@@ -40,7 +38,7 @@ module GTFS
       end
 
       def post_process(class_name,feed)
-        @previous_feeds["#{class_name.tableize}_feed".to_sym] = feed
+        cache_objects(config, class_name, feed)
       end
 
       def process
@@ -60,7 +58,8 @@ module GTFS
         trip_updates_header = feed.try(:header)
 
         # get the feed time of the last feed processed
-        previous_feed_time = Time.at(@previous_feeds[:trip_updates_feed].header.timestamp) unless @previous_feeds[:trip_updates_feed].nil?
+        prev_trip_updates_feed = get_cached_objects(@gtfs_realtime_configuration, 'TripUpdate')
+        previous_feed_time = Time.at(prev_trip_updates_feed.header.timestamp) unless prev_trip_updates_feed.nil?
 
         # get the feed time of the feed being processed currently
         current_feed_time = Time.at(trip_updates_header.timestamp) unless trip_updates_header.nil?
@@ -113,7 +112,7 @@ module GTFS
           # In a trip update, for a trip_id, the route_id will not change
           # so we only need to look for new trip updates that weren't in the previously processed feed
           # and add them and their corresponding stop updates
-          prev_trip_updates = @previous_feeds[:trip_updates_feed].entity
+          prev_trip_updates = prev_trip_updates_feed.entity
           new_trip_ids = trip_updates.map{|x| x.trip_update.trip.trip_id.to_s.strip} - prev_trip_updates.map{|x| x.trip_update.trip.trip_id.to_s.strip}
           new_trip_updates = trip_updates.select{|x| new_trip_ids.include? x.trip_update.trip.trip_id.to_s.strip}
 
@@ -163,7 +162,7 @@ module GTFS
             # get all new stop time updates that weren't in previously processed feed
             # order by departure time
             # convert all stop time updates to hashes for easy comparison
-            prev_stop_time_updates = @previous_feeds[:trip_updates_feed].entity.find{|x| x.id.to_s.strip == trip_update.id.to_s.strip}.trip_update.stop_time_update.sort_by { |x| x.departure&.time || 0 }.map{|x| stop_time_update_to_database_attributes(x)}
+            prev_stop_time_updates = prev_trip_updates_feed.entity.find{|x| x.id.to_s.strip == trip_update.id.to_s.strip}.trip_update.stop_time_update.sort_by { |x| x.departure&.time || 0 }.map{|x| stop_time_update_to_database_attributes(x)}
             stop_time_updates = trip_update.trip_update.stop_time_update.sort_by { |x| x.departure&.time || 0 }.map{|x| stop_time_update_to_database_attributes(x)}
             new_stop_time_updates = stop_time_updates - prev_stop_time_updates
 
@@ -226,8 +225,8 @@ module GTFS
         vehicle_positions = (feed.try(:entity) || []).select{|x| x.vehicle.present?}
         vehicle_positions_header = feed.try(:header)
 
-
-        previous_feed_time = Time.at(@previous_feeds[:vehicle_positions_feed].header.timestamp) unless @previous_feeds[:vehicle_positions_feed].nil?
+        prev_vehicle_positions_feed = get_cached_objects(@gtfs_realtime_configuration, 'VehiclePosition')
+        previous_feed_time = Time.at(prev_vehicle_positions_feed.header.timestamp) unless prev_vehicle_positions_feed.nil?
         current_feed_time = Time.at(vehicle_positions_header.timestamp) unless vehicle_positions_header.nil?
 
         pre_process('VehiclePosition', previous_feed_time, current_feed_time, feed_file)
@@ -273,7 +272,8 @@ module GTFS
         service_alerts = (feed.try(:entity) || []).select{|x| x.alert.present?}
         service_alerts_header = feed.try(:header)
 
-        previous_feed_time = Time.at(@previous_feeds[:service_alerts_feed].header.timestamp) unless @previous_feeds[:service_alerts_feed].nil?
+        prev_service_alerts_feed = get_cached_objects(@gtfs_realtime_configuration, 'ServiceAlert')
+        previous_feed_time = Time.at(prev_service_alerts_feed.header.timestamp) unless prev_service_alerts_feed.nil?
         current_feed_time = Time.at(service_alerts_header.timestamp) unless service_alerts_header.nil?
 
         pre_process('ServiceAlert', previous_feed_time, current_feed_time, feed_file)
@@ -420,6 +420,27 @@ module GTFS
         rescue
           Rails.logger.info "Could not parse GTFS-RT file"
         end
+      end
+
+      #-----------------------------------------------------------------------------
+      # Cache an object
+      #-----------------------------------------------------------------------------
+      def cache_objects(config, class_name, objects)
+        Rails.logger.debug "FeedHandler CACHE put for config #{config} #{class_name}"
+        Rails.cache.fetch(get_cache_key(config,class_name), :force => true) { objects }
+      end
+
+      #-----------------------------------------------------------------------------
+      # Return a cached object. If the object does not exist, an empty array is
+      # returned
+      #-----------------------------------------------------------------------------
+      def get_cached_objects(config,class_name)
+        Rails.logger.debug "FeedHandler CACHE get for key #{config} #{class_name}"
+        ret = Rails.cache.fetch(get_cache_key(config,class_name))
+      end
+
+      def get_cache_key(config,class_name)
+        return "#{config.name}_#{class_name.tableize}_feed"
       end
 
 
