@@ -322,10 +322,11 @@ module GTFS
 
 
       def recreate(opts)
-        if opts[:timestamp].blank?
-          timestamp = GTFS::Realtime::TripUpdate.from_partition(@gtfs_realtime_configuration.id).maximum(:feed_timestamp)
+        if opts[:timestamp].present?
+          timestamp = Chronic.parse(opts[:timestamp])
+          timestamp = GTFS::Realtime::Feed.from_partition(@gtfs_realtime_configuration.id).where("feed_timestamp <= ?", timestamp).maximum(:feed_timestamp)
         else
-          timestamp = Time.at(opts[:timestamp].to_i)
+          timestamp = GTFS::Realtime::Feed.from_partition(@gtfs_realtime_configuration.id).maximum(:feed_timestamp)
         end
 
         if GTFS::Realtime::TripUpdate.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{timestamp.at_beginning_of_week.strftime('%Y%m%d')}"
