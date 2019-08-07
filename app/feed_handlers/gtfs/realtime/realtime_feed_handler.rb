@@ -38,7 +38,7 @@ module GTFS
       end
 
       def post_process(class_name,feed)
-        cache_objects(config, class_name, feed)
+        cache_objects(@gtfs_realtime_configuration, class_name, feed)
       end
 
       def process
