@@ -7,6 +7,8 @@ require "gtfs/gtfs_gem_patch"
 require 'carrierwave'
 require 'fog'
 
+require 'chronic'
+
 require 'gtfs/realtime/engine'
 
 require "gtfs/realtime/version"
