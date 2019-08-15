@@ -50,7 +50,12 @@ module GTFS
 
         handler = klass.new(gtfs_realtime_configuration: config)
         GTFS::Realtime::Model.transaction do
-          handler.process
+          begin
+            handler.process
+            PutMetricDataService.new.put_metric("#{config.name}:HealthyCount", 'Count',1)
+          rescue
+            PutMetricDataService.new.put_metric("#{config.name}:ErrorCount", 'Count', 1)
+          end
         end # end of ActiveRecord transaction
 
         Rails.logger.info "Finished GTFS-RT refresh for #{config.name} at #{Time.now}. Started #{start_time} and took #{Time.now - start_time} seconds in Crono."

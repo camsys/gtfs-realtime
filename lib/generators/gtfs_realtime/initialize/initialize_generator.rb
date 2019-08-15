@@ -1,9 +1,10 @@
 module GtfsRealtime
   class InitializeGenerator < Rails::Generators::Base
+    argument :config_name, type: :string
     source_root File.expand_path('../templates', __FILE__)
 
     def create_jobs
-      GTFS::Realtime::Configuration.all.each do |config|
+      (config_name == 'all' ? GTFS::Realtime::Configuration.all : GTFS::Realtime::Configuration.where(name: config_name)).each do |config|
 
 
         create_file "app/jobs/#{config.name.gsub(' ', '').underscore}_job.rb", <<-FILE
@@ -17,7 +18,13 @@ end
     end
 
     def setup_cronotab
-      GTFS::Realtime::Configuration.all.each do |config|
+      if config_name == 'all'
+        create_file 'config/cronotab.rb', <<-RUBY
+require 'gtfs-realtime-new.pb.rb'
+        RUBY
+      end
+
+      (config_name == 'all' ? GTFS::Realtime::Configuration.all : GTFS::Realtime::Configuration.where(name: config_name)).each do |config|
         append_to_file 'config/cronotab.rb', <<-RUBY
 Crono.perform(#{config.name.gsub(' ', '').classify}Job).every #{config.interval_seconds}.seconds
         RUBY
