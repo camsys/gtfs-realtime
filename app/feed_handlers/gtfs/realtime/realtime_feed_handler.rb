@@ -28,13 +28,13 @@ module GTFS
         ObjectSpace.undefine_finalizer(temp_file)
         begin
           temp_file << feed_file
+          GTFS::Realtime::Feed.create(configuration_id: @gtfs_realtime_configuration.id, feed_timestamp: (current_feed_time || Time.now), class_name: class_name, feed_file: temp_file)
         rescue => ex
           Rails.logger.warn ex
         ensure
           temp_file.close
+          temp_file.unlink
         end
-        GTFS::Realtime::Feed.create(configuration_id: @gtfs_realtime_configuration.id, feed_timestamp: (current_feed_time || Time.now), class_name: class_name, feed_file: temp_file)
-
       end
 
       def post_process(class_name,feed)

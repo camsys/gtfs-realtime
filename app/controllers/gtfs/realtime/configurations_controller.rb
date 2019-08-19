@@ -35,13 +35,15 @@ module GTFS
             ObjectSpace.undefine_finalizer(feed_file)
             begin
               feed_file << feed_message.serialize_to_string
+              send_file feed_file.path
             rescue => ex
               Rails.logger.warn ex
             ensure
               feed_file.close
+              feed_file.unlink
             end
 
-            send_file feed_file.path
+
           }
           format.json { render json: feed_message }
         end
