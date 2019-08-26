@@ -35,7 +35,7 @@ module GTFS
       #
       # @param [String] config_name name of feed saved in the configuration
       #
-      def refresh_realtime_feed!(config)
+      def refresh_realtime_feed!(config, reload_transit_realtime=true)
 
         metric_service = PutMetricDataService.new
         start_time = Time.now
