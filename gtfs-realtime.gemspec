@@ -39,7 +39,7 @@ Gem::Specification.new do |spec|
   spec.add_dependency "partitioned"
 
   spec.add_dependency "carrierwave"
-  spec.add_dependency "fog"
+  spec.add_dependency "fog-aws"
 
   spec.add_dependency 'chronic'
 end
