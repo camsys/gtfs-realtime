@@ -221,7 +221,7 @@ module GTFS
 
         end
 
-        post_process('TripUpdate', feed)
+        post_process('TripUpdate', feed_file)
       end
 
       def process_vehicle_positions
@@ -268,7 +268,7 @@ module GTFS
             end
         )
 
-        post_process('VehiclePosition', feed)
+        post_process('VehiclePosition', feed_file)
       end
 
       def process_service_alerts
@@ -317,7 +317,7 @@ module GTFS
         # this data is partitioned but not checked for duplicates currently
         GTFS::Realtime::ServiceAlert.create_many(new_alerts)
 
-        post_process('ServiceAlert', feed)
+        post_process('ServiceAlert', feed_file)
       end
 
 
@@ -449,7 +449,7 @@ module GTFS
         Crono.logger.info "FeedHandler CACHE get for key #{config} #{class_name}" if Crono.logger
         ret = Rails.cache.fetch(get_cache_key(config,class_name))
 
-        return ret
+        return get_feed(ret)
       end
 
       def get_cache_key(config,class_name)
