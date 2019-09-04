@@ -65,8 +65,6 @@ module GTFS
 
       end
 
-      private
-
       def run_migrations
         ActiveRecord::Migrator.migrate(File.expand_path("../realtime/migrations", __FILE__))
       end

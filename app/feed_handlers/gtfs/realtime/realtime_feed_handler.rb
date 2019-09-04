@@ -8,27 +8,34 @@ module GTFS
         self.gtfs_realtime_configuration = gtfs_realtime_configuration
       end
 
-      def pre_process(class_name, previous_feed_time, current_feed_time, feed_file)
+      def pre_process(class_name, current_feed_time, feed_file, has_entries=true)
 
         # check if need to create new partition
-        if current_feed_time.try(:at_beginning_of_week) != previous_feed_time.try(:at_beginning_of_week)
-          # feed table
-          GTFS::Realtime::Feed.create_new_partition_tables([[@gtfs_realtime_configuration.id, current_feed_time.at_beginning_of_week]]) unless GTFS::Realtime::Feed.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
+        # feed table
+        GTFS::Realtime::Feed.create_new_partition_tables([[@gtfs_realtime_configuration.id, current_feed_time.at_beginning_of_week]]) unless GTFS::Realtime::Feed.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
 
-          klass = "GTFS::Realtime::#{class_name}".constantize
-          klass.create_new_partition_tables([[@gtfs_realtime_configuration.id, current_feed_time.at_beginning_of_week]]) unless klass.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
+        klass = "GTFS::Realtime::#{class_name}".constantize
+        klass.create_new_partition_tables([[@gtfs_realtime_configuration.id, current_feed_time.at_beginning_of_week]]) unless klass.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
 
-          if class_name == 'TripUpdate' && current_feed_time
-            GTFS::Realtime::StopTimeUpdate.create_new_partition_tables([[@gtfs_realtime_configuration.id, current_feed_time.at_beginning_of_week]]) unless GTFS::Realtime::StopTimeUpdate.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
-          end
+        if class_name == 'TripUpdate' && current_feed_time
+          GTFS::Realtime::StopTimeUpdate.create_new_partition_tables([[@gtfs_realtime_configuration.id, current_feed_time.at_beginning_of_week]]) unless GTFS::Realtime::StopTimeUpdate.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
         end
 
         # save the feed file
+
+        if current_feed_time.nil?
+          status = 'Errored'
+        elsif !has_entries
+          status = 'Empty'
+        else
+          status = 'Successful'
+        end
+
         temp_file = Tempfile.new "#{Time.now.to_i}_#{@gtfs_realtime_configuration.name}", "#{Rails.root}/tmp", encoding: 'ascii-8bit'
         ObjectSpace.undefine_finalizer(temp_file)
         begin
           temp_file << feed_file
-          GTFS::Realtime::Feed.create!(configuration_id: @gtfs_realtime_configuration.id, feed_timestamp: (current_feed_time || Time.now), class_name: class_name, feed_file: temp_file)
+          GTFS::Realtime::Feed.create!(configuration_id: @gtfs_realtime_configuration.id, feed_timestamp: (current_feed_time || Time.now), class_name: class_name, feed_file: temp_file, feed_status_type_id: GTFS::Realtime::FeedStatusType.find_by(name: status).id)
         rescue => ex
           Rails.logger.warn ex
         ensure
@@ -69,8 +76,7 @@ module GTFS
         current_feed_time = Time.at(trip_updates_header.timestamp) unless trip_updates_header.nil?
         current_feed_time_without_timezone = Time.zone.at(current_feed_time.to_i) # used as string in query
 
-
-        pre_process('TripUpdate', previous_feed_time, current_feed_time, feed_file)
+        pre_process('TripUpdate', current_feed_time, feed_file, !trip_updates.empty?)
 
         # (Simple) Logic to pulling feed data:
         #
@@ -117,8 +123,7 @@ module GTFS
           # so we only need to look for new trip updates that weren't in the previously processed feed
           # and add them and their corresponding stop updates
           prev_trip_updates = prev_trip_updates_feed.entity
-          new_trip_ids = trip_updates.map{|x| x.trip_update.trip.trip_id.to_s.strip} - prev_trip_updates.map{|x| x.trip_update.trip.trip_id.to_s.strip}
-          new_trip_updates = trip_updates.select{|x| new_trip_ids.include? x.trip_update.trip.trip_id.to_s.strip}
+          new_trip_updates = trip_updates.select{|x| !(prev_trip_updates.map{|x| x.trip_update.trip.trip_id.to_s.strip}.include? x.trip_update.trip.trip_id.to_s.strip) || !(prev_trip_updates.map{|x| x.id.to_s.strip}.include? x.id.to_s.strip)}
 
           GTFS::Realtime::TripUpdate.create_many(
               new_trip_updates.collect do |trip_update|
@@ -234,7 +239,7 @@ module GTFS
         previous_feed_time = Time.at(prev_vehicle_positions_feed.header.timestamp) unless prev_vehicle_positions_feed.nil?
         current_feed_time = Time.at(vehicle_positions_header.timestamp) unless vehicle_positions_header.nil?
 
-        pre_process('VehiclePosition', previous_feed_time, current_feed_time, feed_file)
+        pre_process('VehiclePosition', current_feed_time, feed_file,!vehicle_positions.empty?)
 
         # this data is partitioned but not checked for duplicates currently
         GTFS::Realtime::VehiclePosition.create_many(
@@ -281,7 +286,7 @@ module GTFS
         previous_feed_time = Time.at(prev_service_alerts_feed.header.timestamp) unless prev_service_alerts_feed.nil?
         current_feed_time = Time.at(service_alerts_header.timestamp) unless service_alerts_header.nil?
 
-        pre_process('ServiceAlert', previous_feed_time, current_feed_time, feed_file)
+        pre_process('ServiceAlert', current_feed_time, feed_file, !service_alerts.empty?)
 
         new_alerts = []
 
@@ -322,12 +327,19 @@ module GTFS
 
 
       def recreate(opts)
+
         if opts[:timestamp].present?
           timestamp = Chronic.parse(opts[:timestamp])
-          timestamp = GTFS::Realtime::Feed.from_partition(@gtfs_realtime_configuration.id).where("feed_timestamp <= ?", timestamp).maximum(:feed_timestamp)
+          feeds = GTFS::Realtime::Feed.from_partition(@gtfs_realtime_configuration.id).where("feed_timestamp <= ?", timestamp)
         else
-          timestamp = GTFS::Realtime::Feed.from_partition(@gtfs_realtime_configuration.id).maximum(:feed_timestamp)
+          feeds = GTFS::Realtime::Feed.from_partition(@gtfs_realtime_configuration.id)
         end
+        if opts[:feed_status]
+          feed_status_names = opts[:feed_status].split(',')
+          feeds = feeds.where(feed_status_type_id: FeedStatusType.where(name: feed_status_names).select(:id))
+        end
+
+        timestamp = feeds.maximum(:feed_timestamp)
 
         if GTFS::Realtime::TripUpdate.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{timestamp.at_beginning_of_week.strftime('%Y%m%d')}"
           @trip_updates = GTFS::Realtime::TripUpdate.from_partition(@gtfs_realtime_configuration.id, timestamp.at_beginning_of_week).where("(feed_timestamp - (interval_seconds * interval '1 second')) <= ? AND ? <= feed_timestamp", timestamp, timestamp)
