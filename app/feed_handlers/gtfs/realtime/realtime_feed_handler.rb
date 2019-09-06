@@ -123,7 +123,7 @@ module GTFS
           # so we only need to look for new trip updates that weren't in the previously processed feed
           # and add them and their corresponding stop updates
           prev_trip_updates = prev_trip_updates_feed.entity
-          new_trip_updates = trip_updates.map{|x| trip_update_to_database_attributes(x)} - prev_trip_updates.map{|x| trip_update_to_database_attributes(x)}
+          new_trip_updates = trip_updates.select{|x| !(prev_trip_updates.map{|x| trip_update_to_database_attributes(x)}.include? trip_update_to_database_attributes(x))}
 
           GTFS::Realtime::TripUpdate.create_many(
               new_trip_updates.collect do |trip_update|
