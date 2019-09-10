@@ -65,7 +65,7 @@ module GTFS
 
         feed_file = get_feed_file(@gtfs_realtime_configuration.trip_updates_feed)
         feed = get_feed(feed_file)
-        trip_updates = (feed.try(:entity) || []).select{|x| x.trip_update.present?}
+        trip_updates = (feed.try(:entity) || []).select{|x| x.trip_update.present?}.map{|x| trip_update_to_database_attributes(x).merge({stop_time_updates: x.trip_update.stop_time_update.map{|y| stop_time_update_to_database_attributes(y)}})}
         trip_updates_header = feed.try(:header)
 
         # get the feed time of the last feed processed
@@ -98,19 +98,19 @@ module GTFS
                     configuration_id: @gtfs_realtime_configuration.id,
                     interval_seconds: 0,
                     feed_timestamp: current_feed_time
-                }.merge(trip_update_to_database_attributes(trip_update))
+                }.merge(trip_update.except(:stop_time_updates))
               end
           )
 
           GTFS::Realtime::StopTimeUpdate.create_many(
               trip_updates.collect do |trip_update|
-                trip_update.trip_update.stop_time_update.collect do |stop_time_update|
+                trip_update[:stop_time_updates].collect do |stop_time_update|
                   {
                       configuration_id: @gtfs_realtime_configuration.id,
-                      trip_update_id: trip_update.id.to_s.strip,
+                      trip_update_id: trip_update[:id],
                       interval_seconds: 0,
                       feed_timestamp: current_feed_time
-                  }.merge(stop_time_update_to_database_attributes(stop_time_update))
+                  }.merge(stop_time_update)
                 end
               end.flatten
           )
@@ -122,8 +122,8 @@ module GTFS
           # In a trip update, for a trip_id, the route_id will not change
           # so we only need to look for new trip updates that weren't in the previously processed feed
           # and add them and their corresponding stop updates
-          prev_trip_updates = prev_trip_updates_feed.entity
-          new_trip_updates = trip_updates.select{|x| !(prev_trip_updates.map{|x| trip_update_to_database_attributes(x)}.include? trip_update_to_database_attributes(x))}
+          prev_trip_updates = (prev_trip_updates_feed.entity || []).select{|x| x.trip_update.present?}.map{|x| trip_update_to_database_attributes(x).merge({stop_time_updates: x.trip_update.stop_time_update.map{|y| stop_time_update_to_database_attributes(y)}})}
+          new_trip_updates = trip_updates - prev_trip_updates
 
           GTFS::Realtime::TripUpdate.create_many(
               new_trip_updates.collect do |trip_update|
@@ -131,7 +131,7 @@ module GTFS
                     configuration_id: @gtfs_realtime_configuration.id,
                     interval_seconds: 0,
                     feed_timestamp: current_feed_time
-                }.merge(trip_update_to_database_attributes(trip_update))
+                }.merge(trip_update.except(:stop_time_updates))
               end
           )
 
@@ -142,7 +142,7 @@ module GTFS
                     configuration_id: @gtfs_realtime_configuration.id,
                     feed_timestamp: previous_feed_time,
                     interval_seconds: @gtfs_realtime_configuration.interval_seconds
-                }.merge(trip_update_to_database_attributes(trip_update))
+                }.merge(trip_update.except(:stop_time_updates))
               end,
               {
                   set_array: '"'+ "feed_timestamp ='#{current_feed_time_without_timezone}', interval_seconds = \#{table_name}.interval_seconds + datatable.interval_seconds"+'"',
@@ -152,13 +152,13 @@ module GTFS
 
           # store all new stop updates in an array to be added at once for performance
           all_new_stop_time_updates = new_trip_updates.collect do |trip_update|
-            trip_update.trip_update.stop_time_update.collect do |stop_time_update|
+            trip_update[:stop_time_updates].collect do |stop_time_update|
               {
                   configuration_id: @gtfs_realtime_configuration.id,
-                  trip_update_id: trip_update.id.to_s.strip,
+                  trip_update_id: trip_update[:id],
                   interval_seconds: 0,
                   feed_timestamp: current_feed_time
-              }.merge(stop_time_update_to_database_attributes(stop_time_update))
+              }.merge(stop_time_update)
 
             end
           end.flatten
@@ -171,16 +171,16 @@ module GTFS
             # get all new stop time updates that weren't in previously processed feed
             # order by departure time
             # convert all stop time updates to hashes for easy comparison
-            prev = prev_trip_updates.find{|x| x.id.to_s.strip == trip_update.id.to_s.strip}
-            prev_stop_time_updates = prev.present? ? prev.trip_update.stop_time_update.sort_by { |x| x.departure&.time || 0 }.map{|x| stop_time_update_to_database_attributes(x)} : []
-            stop_time_updates = trip_update.trip_update.stop_time_update.sort_by { |x| x.departure&.time || 0 }.map{|x| stop_time_update_to_database_attributes(x)}
+            prev = prev_trip_updates.find{|x| x[:id] == trip_update[:id]}
+            prev_stop_time_updates = (prev.present? ? prev[:stop_time_updates] : []).sort_by { |x| x[:departure_time] || 0 }
+            stop_time_updates = trip_update[:stop_time_updates].sort_by { |x| x[:departure_time] || 0 }
             new_stop_time_updates = stop_time_updates - prev_stop_time_updates
 
             all_new_stop_time_updates +=
                 new_stop_time_updates.collect do |stop_time_update|
                   {
                       configuration_id: @gtfs_realtime_configuration.id,
-                      trip_update_id: trip_update.id.to_s.strip,
+                      trip_update_id: trip_update[:id],
                       interval_seconds: 0,
                       feed_timestamp: current_feed_time
                   }.merge(stop_time_update)
@@ -196,7 +196,7 @@ module GTFS
                 all_new_stop_time_updates << (
                 {
                     configuration_id: @gtfs_realtime_configuration.id,
-                    trip_update_id: trip_update.id.to_s.strip,
+                    trip_update_id: trip_update[:id],
                     interval_seconds: 0,
                     feed_timestamp: current_feed_time
                 }.merge(stop_time_update)
@@ -205,7 +205,7 @@ module GTFS
               else # if not update feed timestamp
                 all_other_stop_time_updates << ({
                     configuration_id: @gtfs_realtime_configuration.id,
-                    trip_update_id: trip_update.id.to_s.strip,
+                    trip_update_id: trip_update[:id],
                     feed_timestamp: previous_feed_time,
                     interval_seconds: @gtfs_realtime_configuration.interval_seconds
                 }.merge(stop_time_update))
@@ -365,8 +365,6 @@ module GTFS
 
         entities = @trip_updates.collect do |trip_update_row|
 
-          trip = TransitRealtime::TripDescriptor.new(trip_id: trip_update_row.trip_id, route_id: trip_update_row.route_id, direction_id: trip_update_row.direction_id, start_time: trip_update_row.start_time, start_date: trip_update_row.start_date, schedule_relationship: trip_update_row.schedule_relationship)
-          vehicle = TransitRealtime::VehicleDescriptor.new(id: trip_update_row.vehicle_id, label: trip_update_row.vehicle_label, license_plate: trip_update_row.license_plate)
           stop_time_updates = @stop_time_updates.where(trip_update_id: trip_update_row.id).collect do |stop_time_update|
             stop_time_update_from_database_attributes(stop_time_update)
           end

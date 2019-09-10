@@ -12,7 +12,7 @@ gem 'bulk_data_methods', github: 'AirHelp/bulk_data_methods', branch: 'rails5'
 gem 'partitioned', github: 'AirHelp/partitioned', branch: 'rails-5-1'
 gem 'gtfs-realtime', path: '../gtfs-realtime'
 
-gem 'whenever', require: false
+gem 'crono'
 ```
 
 Add your feeds:
@@ -27,16 +27,14 @@ where you pass to `configure` an array of hashes for all your feeds
 
 You can re-run `configure` as many times as you want to add new feeds. TODO: currently, you cannot delete feeds.
 
-In your application, Add your whenever config to refresh the realtime feed every ### seconds and save to the database:
+In your application, run
 ```ruby
-GTFS::Realtime::Configuration.all.each do |config|
-  every config.interval_seconds.seconds do # 1.minute 1.day 1.week 1.month 1.year is also supported
-    runner "GTFS::Realtime.refresh_realtime_feed!(#{config.name})"
-  end
-end
+rails g gtfs_realtime:initialize
 ```
-Note: if you don't ping your feed in the same interval as you config you can't reconstruct as it happened.
-
+or
+```ruby
+rails g gtf_realtime:initialize feed_name
+```
 ## Limitations
 
 * Assumes all feeds have a header gtfs_realtime_version of 1.0
