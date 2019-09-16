@@ -3,9 +3,11 @@ module GTFS
     class RealtimeFeedHandler
 
       attr_accessor :gtfs_realtime_configuration
+      attr_accessor :put_metric_data_service
 
       def initialize(gtfs_realtime_configuration: GTFS::Realtime::Configuration.new)
         self.gtfs_realtime_configuration = gtfs_realtime_configuration
+        self.put_metric_data_service = PutMetricDataService.new
       end
 
       def pre_process(class_name, current_feed_time, feed_file, has_entries=true)
@@ -48,6 +50,7 @@ module GTFS
         if feed.nil?
           clear_cached_objects(@gtfs_realtime_configuration, class_name)
         else
+          clear_cached_objects(@gtfs_realtime_configuration, class_name)
           cache_objects(@gtfs_realtime_configuration, class_name, feed)
         end
       end
@@ -77,6 +80,8 @@ module GTFS
         current_feed_time_without_timezone = Time.zone.at(current_feed_time.to_i) # used as string in query
 
         pre_process('TripUpdate', current_feed_time, feed_file, !trip_updates.empty?)
+
+        @put_metric_data_service.put_metric("#{@gtfs_realtime_configuration.name}:TripUpdateCount", 'Count',trip_updates.count)
 
         # (Simple) Logic to pulling feed data:
         #
