@@ -44,15 +44,11 @@ module GTFS
           temp_file.close
           temp_file.unlink
         end
-      end
 
-      def post_process(class_name,feed)
-        if feed.nil?
-          clear_cached_objects(@gtfs_realtime_configuration, class_name)
-        else
-          clear_cached_objects(@gtfs_realtime_configuration, class_name)
-          cache_objects(@gtfs_realtime_configuration, class_name, feed)
-        end
+
+        # update cache
+        clear_cached_objects(@gtfs_realtime_configuration, class_name)
+        cache_objects(@gtfs_realtime_configuration, class_name, feed_file) if has_entries
       end
 
       def process
@@ -230,8 +226,6 @@ module GTFS
           )
 
         end
-
-        post_process('TripUpdate', feed_file)
       end
 
       def process_vehicle_positions
@@ -277,8 +271,6 @@ module GTFS
               }
             end
         )
-
-        post_process('VehiclePosition', feed_file)
       end
 
       def process_service_alerts
@@ -326,8 +318,6 @@ module GTFS
 
         # this data is partitioned but not checked for duplicates currently
         GTFS::Realtime::ServiceAlert.create_many(new_alerts)
-
-        post_process('ServiceAlert', feed_file)
       end
 
 
