@@ -14,18 +14,22 @@ module GTFS
 
         # check if need to create new partition
         # feed table
-        GTFS::Realtime::Feed.create_new_partition_tables([[@gtfs_realtime_configuration.id, current_feed_time.at_beginning_of_week]]) unless GTFS::Realtime::Feed.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
+        if current_feed_time
+          GTFS::Realtime::Feed.create_new_partition_tables([[@gtfs_realtime_configuration.id, current_feed_time.at_beginning_of_week]]) unless GTFS::Realtime::Feed.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
 
-        klass = "GTFS::Realtime::#{class_name}".constantize
-        klass.create_new_partition_tables([[@gtfs_realtime_configuration.id, current_feed_time.at_beginning_of_week]]) unless klass.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
+          klass = "GTFS::Realtime::#{class_name}".constantize
+          klass.create_new_partition_tables([[@gtfs_realtime_configuration.id, current_feed_time.at_beginning_of_week]]) unless klass.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
 
-        if class_name == 'TripUpdate' && current_feed_time
-          GTFS::Realtime::StopTimeUpdate.create_new_partition_tables([[@gtfs_realtime_configuration.id, current_feed_time.at_beginning_of_week]]) unless GTFS::Realtime::StopTimeUpdate.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
+          if class_name == 'TripUpdate'
+            GTFS::Realtime::StopTimeUpdate.create_new_partition_tables([[@gtfs_realtime_configuration.id, current_feed_time.at_beginning_of_week]]) unless GTFS::Realtime::StopTimeUpdate.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
+          end
         end
 
         # save the feed file
 
-        if current_feed_time.nil?
+        if class_name == 'TripUpdate'
+          status = nil
+        elsif current_feed_time.nil?
           status = 'Errored'
         elsif !has_entries
           status = 'Empty'
@@ -37,7 +41,7 @@ module GTFS
         ObjectSpace.undefine_finalizer(temp_file)
         begin
           temp_file << feed_file
-          GTFS::Realtime::Feed.create!(configuration_id: @gtfs_realtime_configuration.id, feed_timestamp: (current_feed_time || Time.now), class_name: class_name, feed_file: temp_file, feed_status_type_id: GTFS::Realtime::FeedStatusType.find_by(name: status).id)
+          GTFS::Realtime::Feed.create!(configuration_id: @gtfs_realtime_configuration.id, feed_timestamp: (current_feed_time || Time.now), class_name: class_name, feed_file: temp_file, feed_status_type_id: GTFS::Realtime::FeedStatusType.find_by(name: status).try(:id))
         rescue => ex
           Rails.logger.warn ex
         ensure
@@ -45,156 +49,187 @@ module GTFS
           temp_file.unlink
         end
 
-
-        # update cache
-        clear_cached_objects(@gtfs_realtime_configuration, class_name)
-        cache_objects(@gtfs_realtime_configuration, class_name, feed_file) if has_entries
       end
 
       def process
 
-        process_trip_updates if @gtfs_realtime_configuration.trip_updates_feed.present?
-        process_vehicle_positions if @gtfs_realtime_configuration.vehicle_positions_feed.present?
-        process_service_alerts if @gtfs_realtime_configuration.service_alerts_feed.present?
+        errored = false
 
+        if @gtfs_realtime_configuration.trip_updates_feed.present?
+
+          feed_file = get_feed_file(@gtfs_realtime_configuration.trip_updates_feed)
+          feed = get_feed(feed_file)
+          trip_updates_header = feed.try(:header)
+
+          # get the feed time of the feed being processed currently
+          current_feed_time = Time.at(trip_updates_header.timestamp) unless trip_updates_header.nil?
+
+          pre_process('TripUpdate', current_feed_time, feed_file)
+
+
+         if GTFS::Realtime::Feed.from_partition(@gtfs_realtime_configuration.id, Date.today.at_beginning_of_week).where(feed_status_type_id: GTFS::Realtime::FeedStatusType.find_by(name: 'Running').id).count == 0
+           GTFS::Realtime::Feed.from_partition(@gtfs_realtime_configuration.id, Date.today.at_beginning_of_week).order(:feed_timestamp).where(feed_status_type_id: nil).each do |trip_updates_feed|
+             start_time = Time.now
+
+             Rails.logger.info "Starting GTFS-RT refresh for TripUpdate #{@gtfs_realtime_configuration.name} at #{start_time}."
+             Crono.logger.info "Starting GTFS-RT refresh for TripUpdate #{@gtfs_realtime_configuration.name} at #{start_time} in Crono." if Crono.logger
+
+             trip_updates_feed.update_columns(feed_status_type_id: GTFS::Realtime::FeedStatusType.find_by(name: 'Running').id)
+             GTFS::Realtime::Model.transaction do
+               #begin
+                 process_trip_updates(trip_updates_feed)
+               #rescue
+               #  errored = true
+               #end
+             end # end of ActiveRecord transaction
+
+             @put_metric_data_service.put_metric("#{@gtfs_realtime_configuration.name}:Runtime", 'Seconds',Time.now - start_time)
+             Rails.logger.info "Finished GTFS-RT refresh for TripUpdate #{@gtfs_realtime_configuration.name} at #{Time.now}. Started #{start_time} and took #{Time.now - start_time} seconds in Crono."
+             Crono.logger.info "Finished GTFS-RT refresh for TripUpdate #{@gtfs_realtime_configuration.name} at #{Time.now}. Started #{start_time} and took #{Time.now - start_time} seconds in Crono." if Crono.logger
+           end
+          end
+        end
+
+        if @gtfs_realtime_configuration.vehicle_positions_feed.present?
+          start_time = Time.now
+
+          Rails.logger.info "Starting GTFS-RT refresh for VehiclePosition #{@gtfs_realtime_configuration.name} at #{start_time}."
+          Crono.logger.info "Starting GTFS-RT refresh for VehiclePosition #{@gtfs_realtime_configuration.name} at #{start_time} in Crono." if Crono.logger
+          GTFS::Realtime::Model.transaction do
+            begin
+              process_vehicle_positions
+            rescue
+              errored = true
+            end
+          end
+          Rails.logger.info "Finished GTFS-RT refresh for VehiclePosition #{@gtfs_realtime_configuration.name} at #{Time.now}. Started #{start_time} and took #{Time.now - start_time} seconds in Crono."
+          Crono.logger.info "Finished GTFS-RT refresh for VehiclePosition #{@gtfs_realtime_configuration.name} at #{Time.now}. Started #{start_time} and took #{Time.now - start_time} seconds in Crono." if Crono.logger
+        end
+
+        if @gtfs_realtime_configuration.service_alerts_feed.present?
+          start_time = Time.now
+
+          Rails.logger.info "Starting GTFS-RT refresh for ServiceAlert #{@gtfs_realtime_configuration.name} at #{start_time}."
+          Crono.logger.info "Starting GTFS-RT refresh for ServiceAlert #{@gtfs_realtime_configuration.name} at #{start_time} in Crono." if Crono.logger
+
+          GTFS::Realtime::Model.transaction do
+            begin
+              process_service_alerts
+            rescue
+              errored = true
+            end
+          end
+          Rails.logger.info "Finished GTFS-RT refresh for ServiceAlert #{@gtfs_realtime_configuration.name} at #{Time.now}. Started #{start_time} and took #{Time.now - start_time} seconds in Crono."
+          Crono.logger.info "Finished GTFS-RT refresh for ServiceAlert #{@gtfs_realtime_configuration.name} at #{Time.now}. Started #{start_time} and took #{Time.now - start_time} seconds in Crono." if Crono.logger
+        end
+
+        @put_metric_data_service.put_metric("#{@gtfs_realtime_configuration.name}:#{errored ? 'ErrorCount' : 'HealthyCount'}", 'Count',1)
       end
 
 
-      def process_trip_updates
+      def process_trip_updates(trip_updates_feed)
 
-        feed_file = get_feed_file(@gtfs_realtime_configuration.trip_updates_feed)
+        feed_file = get_feed_file(trip_updates_feed.feed_file.url)
         feed = get_feed(feed_file)
-        trip_updates = (feed.try(:entity) || []).select{|x| x.trip_update.present?}.map{|x| trip_update_to_database_attributes(x).merge({stop_time_updates: x.trip_update.stop_time_update.map{|y| stop_time_update_to_database_attributes(y)}})}
         trip_updates_header = feed.try(:header)
-
-        # get the feed time of the last feed processed
-        prev_trip_updates_feed = get_cached_objects(@gtfs_realtime_configuration, 'TripUpdate')
-        previous_feed_time = Time.at(prev_trip_updates_feed.header.timestamp) unless prev_trip_updates_feed.nil?
 
         # get the feed time of the feed being processed currently
         current_feed_time = Time.at(trip_updates_header.timestamp) unless trip_updates_header.nil?
         current_feed_time_without_timezone = Time.zone.at(current_feed_time.to_i) # used as string in query
 
-        pre_process('TripUpdate', current_feed_time, feed_file, !trip_updates.empty?)
+        trip_updates = (feed.try(:entity) || []).select{|x| x.trip_update.present?}.map{|x| trip_update_to_database_attributes(x).merge({stop_time_updates: x.trip_update.stop_time_update.map{|y| stop_time_update_to_database_attributes(y)}})}
 
         @put_metric_data_service.put_metric("#{@gtfs_realtime_configuration.name}:TripUpdateCount", 'Count',trip_updates.count)
 
-        # (Simple) Logic to pulling feed data:
-        #
-        # Assuming:
-        # Feed A at 12:00
-        # Feed B at 12:01
-        #
-        # When B is pulled, get B - A. Add all rows of B - A as that is all new data
-        # With all remaining rows of B (ie. B-(B-A)), iterate through (ordering where relevant) and check for changes.
-        # If row of B != row of A, add row of B to database.
-        # Else update feed timestamp
+        # update feed status
+        if current_feed_time.nil?
+          status = 'Errored'
+        elsif trip_updates.empty?
+          status = 'Empty'
+        else
+          # get the feed time of the last feed processed
+          prev_trip_updates_feed = get_cached_objects(@gtfs_realtime_configuration, 'TripUpdate')
+          previous_feed_time = Time.at(prev_trip_updates_feed.header.timestamp) unless prev_trip_updates_feed.nil?
 
-        # if no feed has ever been processed, this is the first time its being saved so save all rows
-        # if previous feed time is in different DB partition than current feed time, save all rows (a full backup as opposed to jut saving diff)
-        if previous_feed_time.nil? || GTFS::Realtime::TripUpdate.partition_normalize_key_value(previous_feed_time) != GTFS::Realtime::TripUpdate.partition_normalize_key_value(current_feed_time)
-          GTFS::Realtime::TripUpdate.create_many(
-              trip_updates.collect do |trip_update|
-                {
-                    configuration_id: @gtfs_realtime_configuration.id,
-                    interval_seconds: 0,
-                    feed_timestamp: current_feed_time
-                }.merge(trip_update.except(:stop_time_updates))
-              end
-          )
+          # update cache
+          clear_cached_objects(@gtfs_realtime_configuration, 'TripUpdate')
+          cache_objects(@gtfs_realtime_configuration, 'TripUpdate', feed_file) unless feed_file.nil?
 
-          GTFS::Realtime::StopTimeUpdate.create_many(
-              trip_updates.collect do |trip_update|
-                trip_update[:stop_time_updates].collect do |stop_time_update|
+          # (Simple) Logic to pulling feed data:
+          #
+          # Assuming:
+          # Feed A at 12:00
+          # Feed B at 12:01
+          #
+          # When B is pulled, get B - A. Add all rows of B - A as that is all new data
+          # With all remaining rows of B (ie. B-(B-A)), iterate through (ordering where relevant) and check for changes.
+          # If row of B != row of A, add row of B to database.
+          # Else update feed timestamp
+
+          # if no feed has ever been processed, this is the first time its being saved so save all rows
+          # if previous feed time is in different DB partition than current feed time, save all rows (a full backup as opposed to jut saving diff)
+          if previous_feed_time.nil? || GTFS::Realtime::TripUpdate.partition_normalize_key_value(previous_feed_time) != GTFS::Realtime::TripUpdate.partition_normalize_key_value(current_feed_time)
+            GTFS::Realtime::TripUpdate.create_many(
+                trip_updates.collect do |trip_update|
                   {
                       configuration_id: @gtfs_realtime_configuration.id,
-                      trip_update_id: trip_update[:id],
                       interval_seconds: 0,
                       feed_timestamp: current_feed_time
-                  }.merge(stop_time_update)
+                  }.merge(trip_update.except(:stop_time_updates))
                 end
-              end.flatten
-          )
+            )
 
-          # ensure you have feed data
-          # then confirm the data is new.
-          # if the previous_feed_time and current_feed_time are the same we can assume the feed data has not changed and therefore has already been processed
-        elsif current_feed_time && previous_feed_time != current_feed_time
-          # In a trip update, for a trip_id, the route_id will not change
-          # so we only need to look for new trip updates that weren't in the previously processed feed
-          # and add them and their corresponding stop updates
-          prev_trip_updates = (prev_trip_updates_feed.entity || []).select{|x| x.trip_update.present?}.map{|x| trip_update_to_database_attributes(x).merge({stop_time_updates: x.trip_update.stop_time_update.map{|y| stop_time_update_to_database_attributes(y)}})}
-          new_trip_updates = trip_updates - prev_trip_updates
+            GTFS::Realtime::StopTimeUpdate.create_many(
+                trip_updates.collect do |trip_update|
+                  trip_update[:stop_time_updates].collect do |stop_time_update|
+                    {
+                        configuration_id: @gtfs_realtime_configuration.id,
+                        trip_update_id: trip_update[:id],
+                        interval_seconds: 0,
+                        feed_timestamp: current_feed_time
+                    }.merge(stop_time_update)
+                  end
+                end.flatten
+            )
 
-          GTFS::Realtime::TripUpdate.create_many(
-              new_trip_updates.collect do |trip_update|
-                {
-                    configuration_id: @gtfs_realtime_configuration.id,
-                    interval_seconds: 0,
-                    feed_timestamp: current_feed_time
-                }.merge(trip_update.except(:stop_time_updates))
-              end
-          )
+            # ensure you have feed data
+            # then confirm the data is new.
+            # if the previous_feed_time and current_feed_time are the same we can assume the feed data has not changed and therefore has already been processed
+          elsif current_feed_time && previous_feed_time != current_feed_time
+            # In a trip update, for a trip_id, the route_id will not change
+            # so we only need to look for new trip updates that weren't in the previously processed feed
+            # and add them and their corresponding stop updates
+            prev_trip_updates = (prev_trip_updates_feed.entity || []).select{|x| x.trip_update.present?}.map{|x| trip_update_to_database_attributes(x).merge({stop_time_updates: x.trip_update.stop_time_update.map{|y| stop_time_update_to_database_attributes(y)}})}
+            new_trip_updates = trip_updates - prev_trip_updates
 
-          # update all unchanged trip updates with a new end feed_timestamp
-          GTFS::Realtime::TripUpdate.update_many(
-              (trip_updates - new_trip_updates).collect do |trip_update|
-                {
-                    configuration_id: @gtfs_realtime_configuration.id,
-                    feed_timestamp: previous_feed_time,
-                    interval_seconds: @gtfs_realtime_configuration.interval_seconds
-                }.merge(trip_update.except(:stop_time_updates))
-              end,
-              {
-                  set_array: '"'+ "feed_timestamp ='#{current_feed_time_without_timezone}', interval_seconds = \#{table_name}.interval_seconds + datatable.interval_seconds"+'"',
-                  where_datatable: '"#{table_name}.configuration_id = datatable.configuration_id AND #{table_name}.id = datatable.id AND #{table_name}.trip_id = datatable.trip_id AND #{table_name}.route_id = datatable.route_id AND #{table_name}.feed_timestamp = datatable.feed_timestamp"'
-              }
-          )
-
-          # store all new stop updates in an array to be added at once for performance
-          all_new_stop_time_updates = new_trip_updates.collect do |trip_update|
-            trip_update[:stop_time_updates].collect do |stop_time_update|
-              {
-                  configuration_id: @gtfs_realtime_configuration.id,
-                  trip_update_id: trip_update[:id],
-                  interval_seconds: 0,
-                  feed_timestamp: current_feed_time
-              }.merge(stop_time_update)
-
-            end
-          end.flatten
-
-          all_other_stop_time_updates = []
-
-          # For all other trip updates, check stop updates for changes
-          (trip_updates - new_trip_updates).each do |trip_update|
-
-            # get all new stop time updates that weren't in previously processed feed
-            # order by departure time
-            # convert all stop time updates to hashes for easy comparison
-            prev = prev_trip_updates.find{|x| x[:id] == trip_update[:id]}
-            prev_stop_time_updates = (prev.present? ? prev[:stop_time_updates] : []).sort_by { |x| x[:departure_time] || 0 }
-            stop_time_updates = trip_update[:stop_time_updates].sort_by { |x| x[:departure_time] || 0 }
-            new_stop_time_updates = stop_time_updates - prev_stop_time_updates
-
-            all_new_stop_time_updates +=
-                new_stop_time_updates.collect do |stop_time_update|
+            GTFS::Realtime::TripUpdate.create_many(
+                new_trip_updates.collect do |trip_update|
                   {
                       configuration_id: @gtfs_realtime_configuration.id,
-                      trip_update_id: trip_update[:id],
                       interval_seconds: 0,
                       feed_timestamp: current_feed_time
-                  }.merge(stop_time_update)
+                  }.merge(trip_update.except(:stop_time_updates))
                 end
+            )
 
-            # for all other stop updates, compare
-            updated_stop_time_updates = (stop_time_updates - new_stop_time_updates)
-            prev_stop_time_updates_to_check = (prev_stop_time_updates & updated_stop_time_updates)
+            # update all unchanged trip updates with a new end feed_timestamp
+            GTFS::Realtime::TripUpdate.update_many(
+                (trip_updates - new_trip_updates).collect do |trip_update|
+                  {
+                      configuration_id: @gtfs_realtime_configuration.id,
+                      feed_timestamp: previous_feed_time,
+                      interval_seconds: @gtfs_realtime_configuration.interval_seconds
+                  }.merge(trip_update.except(:stop_time_updates))
+                end,
+                {
+                    set_array: '"'+ "feed_timestamp ='#{current_feed_time_without_timezone}', interval_seconds = \#{table_name}.interval_seconds + datatable.interval_seconds"+'"',
+                    where_datatable: '"#{table_name}.configuration_id = datatable.configuration_id AND #{table_name}.id = datatable.id AND #{table_name}.trip_id = datatable.trip_id AND #{table_name}.route_id = datatable.route_id AND #{table_name}.feed_timestamp = datatable.feed_timestamp"'
+                }
+            )
 
-            updated_stop_time_updates.each_with_index do |stop_time_update, idx|
-              # if different add new row
-              if stop_time_update != prev_stop_time_updates_to_check[idx]
-                all_new_stop_time_updates << (
+            # store all new stop updates in an array to be added at once for performance
+            all_new_stop_time_updates = new_trip_updates.collect do |trip_update|
+              trip_update[:stop_time_updates].collect do |stop_time_update|
                 {
                     configuration_id: @gtfs_realtime_configuration.id,
                     trip_update_id: trip_update[:id],
@@ -202,30 +237,76 @@ module GTFS
                     feed_timestamp: current_feed_time
                 }.merge(stop_time_update)
 
-                )
-              else # if not update feed timestamp
-                all_other_stop_time_updates << ({
-                    configuration_id: @gtfs_realtime_configuration.id,
-                    trip_update_id: trip_update[:id],
-                    feed_timestamp: previous_feed_time,
-                    interval_seconds: @gtfs_realtime_configuration.interval_seconds
-                }.merge(stop_time_update))
+              end
+            end.flatten
+
+            all_other_stop_time_updates = []
+
+            # For all other trip updates, check stop updates for changes
+            (trip_updates - new_trip_updates).each do |trip_update|
+
+              # get all new stop time updates that weren't in previously processed feed
+              # order by departure time
+              # convert all stop time updates to hashes for easy comparison
+              prev = prev_trip_updates.find{|x| x[:id] == trip_update[:id]}
+              prev_stop_time_updates = (prev.present? ? prev[:stop_time_updates] : []).sort_by { |x| x[:departure_time] || 0 }
+              stop_time_updates = trip_update[:stop_time_updates].sort_by { |x| x[:departure_time] || 0 }
+              new_stop_time_updates = stop_time_updates - prev_stop_time_updates
+
+              all_new_stop_time_updates +=
+                  new_stop_time_updates.collect do |stop_time_update|
+                    {
+                        configuration_id: @gtfs_realtime_configuration.id,
+                        trip_update_id: trip_update[:id],
+                        interval_seconds: 0,
+                        feed_timestamp: current_feed_time
+                    }.merge(stop_time_update)
+                  end
+
+              # for all other stop updates, compare
+              updated_stop_time_updates = (stop_time_updates - new_stop_time_updates)
+              prev_stop_time_updates_to_check = (prev_stop_time_updates & updated_stop_time_updates)
+
+              updated_stop_time_updates.each_with_index do |stop_time_update, idx|
+                # if different add new row
+                if stop_time_update != prev_stop_time_updates_to_check[idx]
+                  all_new_stop_time_updates << (
+                  {
+                      configuration_id: @gtfs_realtime_configuration.id,
+                      trip_update_id: trip_update[:id],
+                      interval_seconds: 0,
+                      feed_timestamp: current_feed_time
+                  }.merge(stop_time_update)
+
+                  )
+                else # if not update feed timestamp
+                  all_other_stop_time_updates << ({
+                      configuration_id: @gtfs_realtime_configuration.id,
+                      trip_update_id: trip_update[:id],
+                      feed_timestamp: previous_feed_time,
+                      interval_seconds: @gtfs_realtime_configuration.interval_seconds
+                  }.merge(stop_time_update))
+                end
               end
             end
+
+            # save stop time updates to database
+            GTFS::Realtime::StopTimeUpdate.create_many(all_new_stop_time_updates)
+            GTFS::Realtime::StopTimeUpdate.update_many(
+                all_other_stop_time_updates,
+                {
+                    set_array: '"'+ "feed_timestamp ='#{current_feed_time_without_timezone}', interval_seconds = \#{table_name}.interval_seconds + datatable.interval_seconds"+'"',
+                    where_datatable: '
+                    "#{table_name}.configuration_id = datatable.configuration_id AND #{table_name}.trip_update_id = datatable.trip_update_id AND #{table_name}.stop_id = datatable.stop_id AND #{table_name}.arrival_delay = datatable.arrival_delay AND #{table_name}.arrival_time = datatable.arrival_time AND #{table_name}.departure_delay = datatable.departure_delay AND #{table_name}.departure_time = datatable.departure_time AND #{table_name}.feed_timestamp = datatable.feed_timestamp"'
+                }
+            )
+
           end
 
-          # save stop time updates to database
-          GTFS::Realtime::StopTimeUpdate.create_many(all_new_stop_time_updates)
-          GTFS::Realtime::StopTimeUpdate.update_many(
-              all_other_stop_time_updates,
-              {
-                  set_array: '"'+ "feed_timestamp ='#{current_feed_time_without_timezone}', interval_seconds = \#{table_name}.interval_seconds + datatable.interval_seconds"+'"',
-                  where_datatable: '
-                    "#{table_name}.configuration_id = datatable.configuration_id AND #{table_name}.trip_update_id = datatable.trip_update_id AND #{table_name}.stop_id = datatable.stop_id AND #{table_name}.arrival_delay = datatable.arrival_delay AND #{table_name}.arrival_time = datatable.arrival_time AND #{table_name}.departure_delay = datatable.departure_delay AND #{table_name}.departure_time = datatable.departure_time AND #{table_name}.feed_timestamp = datatable.feed_timestamp"'
-              }
-          )
-
+          status = 'Successful'
         end
+
+        trip_updates_feed.update_columns(feed_status_type_id: GTFS::Realtime::FeedStatusType.find_by(name: status).id)
       end
 
       def process_vehicle_positions
@@ -331,7 +412,7 @@ module GTFS
         end
         if opts[:feed_status]
           feed_status_names = opts[:feed_status].split(',')
-          feeds = feeds.where(feed_status_type_id: FeedStatusType.where(name: feed_status_names).select(:id))
+          feeds = feeds.where(feed_status_type_id: GTFS::Realtime::FeedStatusType.where(name: feed_status_names).select(:id))
         end
 
         timestamp = feeds.maximum(:feed_timestamp)

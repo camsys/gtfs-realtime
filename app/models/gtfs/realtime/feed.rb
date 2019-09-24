@@ -2,7 +2,7 @@ module GTFS
   class Realtime
     class Feed < GTFS::Realtime::PartitionedByConfigurationAndTime
       belongs_to :configuration
-      belongs_to :feed_status_type
+      belongs_to :feed_status_type, optional: true
 
       mount_uploader :feed_file, FeedFileUploader
 

@@ -11,7 +11,8 @@ class CreateFeedStatusTypes < ActiveRecord::Migration[5.0]
     [
         {name: 'Successful', description: 'Feed file can be processed', active: true},
         {name: 'Empty', description: 'Feed file was empty', active: true},
-        {name: 'Errored', description: 'Feed file could not be processed', active: true}
+        {name: 'Errored', description: 'Feed file could not be processed', active: true},
+        {name: 'Running', description: 'Feed file being processed', active: true}
     ].each do |type|
       GTFS::Realtime::FeedStatusType.create!(type)
     end
