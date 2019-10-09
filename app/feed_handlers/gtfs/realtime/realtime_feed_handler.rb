@@ -76,12 +76,16 @@ module GTFS
 
              trip_updates_feed.update_columns(feed_status_type_id: GTFS::Realtime::FeedStatusType.find_by(name: 'Running').id)
              GTFS::Realtime::Model.transaction do
-               #begin
-                 process_trip_updates(trip_updates_feed)
-               #rescue
-               #  errored = true
-               #end
+               begin
+                 status = process_trip_updates(trip_updates_feed)
+               rescue => ex
+                 errored = true
+                 Rails.logger.error ex
+                 Crono.logger.error ex if Crono.logger
+               end
              end # end of ActiveRecord transaction
+
+             trip_updates_feed.update_columns(feed_status_type_id: GTFS::Realtime::FeedStatusType.find_by(name: (status || 'Errored')).id)
 
              @put_metric_data_service.put_metric("#{@gtfs_realtime_configuration.name}:Runtime", 'Seconds',Time.now - start_time)
              Rails.logger.info "Finished GTFS-RT refresh for TripUpdate #{@gtfs_realtime_configuration.name} at #{Time.now}. Started #{start_time} and took #{Time.now - start_time} seconds in Crono."
@@ -100,6 +104,8 @@ module GTFS
               process_vehicle_positions
             rescue
               errored = true
+              Rails.logger.error ex
+              Crono.logger.error ex if Crono.logger
             end
           end
           Rails.logger.info "Finished GTFS-RT refresh for VehiclePosition #{@gtfs_realtime_configuration.name} at #{Time.now}. Started #{start_time} and took #{Time.now - start_time} seconds in Crono."
@@ -117,6 +123,8 @@ module GTFS
               process_service_alerts
             rescue
               errored = true
+              Rails.logger.error ex
+              Crono.logger.error ex if Crono.logger
             end
           end
           Rails.logger.info "Finished GTFS-RT refresh for ServiceAlert #{@gtfs_realtime_configuration.name} at #{Time.now}. Started #{start_time} and took #{Time.now - start_time} seconds in Crono."
@@ -306,7 +314,7 @@ module GTFS
           status = 'Successful'
         end
 
-        trip_updates_feed.update_columns(feed_status_type_id: GTFS::Realtime::FeedStatusType.find_by(name: status).id)
+        return status
       end
 
       def process_vehicle_positions
