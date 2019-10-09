@@ -67,8 +67,8 @@ module GTFS
           pre_process('TripUpdate', current_feed_time, feed_file)
 
 
-         if GTFS::Realtime::Feed.from_partition(@gtfs_realtime_configuration.id, Date.today.at_beginning_of_week).where(feed_status_type_id: GTFS::Realtime::FeedStatusType.find_by(name: 'Running').id).count == 0
-           GTFS::Realtime::Feed.from_partition(@gtfs_realtime_configuration.id, Date.today.at_beginning_of_week).order(:feed_timestamp).where(feed_status_type_id: nil).each do |trip_updates_feed|
+         if GTFS::Realtime::Feed.from_partition(@gtfs_realtime_configuration.id, Date.today.at_beginning_of_week).where(class_name: 'TripUpdate', feed_status_type_id: GTFS::Realtime::FeedStatusType.find_by(name: 'Running').id).count == 0
+           GTFS::Realtime::Feed.from_partition(@gtfs_realtime_configuration.id, Date.today.at_beginning_of_week).order(:feed_timestamp).where(class_name: 'TripUpdate', feed_status_type_id: nil).each do |trip_updates_feed|
              start_time = Time.now
 
              Rails.logger.info "Starting GTFS-RT refresh for TripUpdate #{@gtfs_realtime_configuration.name} at #{start_time}."
