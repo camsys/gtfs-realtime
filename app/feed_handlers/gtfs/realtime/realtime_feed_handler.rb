@@ -75,6 +75,7 @@ module GTFS
              Crono.logger.info "Starting GTFS-RT refresh for TripUpdate #{@gtfs_realtime_configuration.name} at #{start_time} in Crono." if Crono.logger
 
              trip_updates_feed.update_columns(feed_status_type_id: GTFS::Realtime::FeedStatusType.find_by(name: 'Running').id)
+             status = nil
              GTFS::Realtime::Model.transaction do
                begin
                  status = process_trip_updates(trip_updates_feed)
