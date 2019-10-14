@@ -26,7 +26,7 @@ require 'gtfs-realtime-new.pb.rb'
         RUBY
 
         append_to_file "config/cronotab_#{config.name.gsub(' ', '').underscore}.rb", <<-RUBY
-Crono.perform(#{config.name.gsub(' ', '').underscore.classify}Job).every #{config.interval_seconds}.seconds
+Crono.perform(#{config.name.gsub(' ', '').underscore.classify}Job).with_options(truncate_log:2880).every #{config.interval_seconds}.seconds
         RUBY
       end
     end
