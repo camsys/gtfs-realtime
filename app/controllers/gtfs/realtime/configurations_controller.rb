@@ -44,7 +44,6 @@ module GTFS
                 Rails.logger.warn ex
               ensure
                 feed_file.close
-                feed_file.unlink
               end
 
 
