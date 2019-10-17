@@ -413,18 +413,24 @@ module GTFS
 
       def recreate(opts)
 
-        if opts[:timestamp].present?
-          timestamp = Chronic.parse(opts[:timestamp])
-          feeds = GTFS::Realtime::Feed.from_partition(@gtfs_realtime_configuration.id).where("feed_timestamp <= ?", timestamp)
-        else
+        timestamp = Chronic.parse(opts[:timestamp]) if opts[:timestamp].present?
+
+        if timestamp.nil?
           feeds = GTFS::Realtime::Feed.from_partition(@gtfs_realtime_configuration.id)
-        end
-        if opts[:feed_status]
-          feed_status_names = opts[:feed_status].split(',')
-          feeds = feeds.where(feed_status_type_id: GTFS::Realtime::FeedStatusType.where(name: feed_status_names).select(:id))
+        elsif GTFS::Realtime::Feed.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{timestamp.at_beginning_of_week.strftime('%Y%m%d')}"
+          feeds = GTFS::Realtime::Feed.from_partition(@gtfs_realtime_configuration.id, timestamp.at_beginning_of_week).where("feed_timestamp <= ?", timestamp)
         end
 
-        timestamp = feeds.maximum(:feed_timestamp)
+        if feeds
+          if opts[:feed_status]
+            feed_status_names = opts[:feed_status].split(',')
+            feeds = feeds.where(feed_status_type_id: GTFS::Realtime::FeedStatusType.where(name: feed_status_names).select(:id))
+          end
+
+          timestamp = feeds.maximum(:feed_timestamp)
+        else
+          return {feed_message: nil, errors: ['Date not in database']}
+        end
 
         if GTFS::Realtime::TripUpdate.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{timestamp.at_beginning_of_week.strftime('%Y%m%d')}"
           @trip_updates = GTFS::Realtime::TripUpdate.from_partition(@gtfs_realtime_configuration.id, timestamp.at_beginning_of_week).where("(feed_timestamp - (interval_seconds * interval '1 second')) <= ? AND ? <= feed_timestamp", timestamp, timestamp)
@@ -497,7 +503,7 @@ module GTFS
 
         feed_header = TransitRealtime::FeedHeader.new(timestamp: timestamp.to_i, gtfs_realtime_version: '1.0') # assume gtfs realtime version
 
-        return TransitRealtime::FeedMessage.new(header: feed_header, entity: entities)
+        return {feed_message: TransitRealtime::FeedMessage.new(header: feed_header, entity: entities), errors: []}
       end
 
       private

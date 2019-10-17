@@ -26,26 +26,33 @@ module GTFS
 
         handler = klass.new(gtfs_realtime_configuration: @config)
 
-        feed_message = handler.recreate(params)
+
+        feed_response = handler.recreate(params)
+        feed_message = feed_response[:feed_message]
 
         respond_to do |format|
-          format.html {
 
-            feed_file = Tempfile.new "tripUpdates", "#{Rails.root}/tmp", encoding: 'ascii-8bit'
-            ObjectSpace.undefine_finalizer(feed_file)
-            begin
-              feed_file << feed_message.serialize_to_string
-              send_file feed_file.path
-            rescue => ex
-              Rails.logger.warn ex
-            ensure
-              feed_file.close
-              feed_file.unlink
-            end
+          if feed_message
+            format.html {
+
+              feed_file = Tempfile.new "tripUpdates", "#{Rails.root}/tmp", encoding: 'ascii-8bit'
+              ObjectSpace.undefine_finalizer(feed_file)
+              begin
+                feed_file << feed_message.serialize_to_string
+                send_file feed_file.path
+              rescue => ex
+                Rails.logger.warn ex
+              ensure
+                feed_file.close
+                feed_file.unlink
+              end
 
 
-          }
-          format.json { render json: feed_message }
+            }
+            format.json { render json: feed_message }
+          else
+            format.any { render json: {errors: feed_response[:errors].join(',')}}
+          end
         end
       end
 
