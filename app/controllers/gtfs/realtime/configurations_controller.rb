@@ -34,19 +34,11 @@ module GTFS
 
           if feed_message
             format.html {
-
-              feed_file = Tempfile.new "tripUpdates", "#{Rails.root}/tmp", encoding: 'ascii-8bit'
-              ObjectSpace.undefine_finalizer(feed_file)
               begin
-                feed_file << feed_message.serialize_to_string
-                send_file feed_file.path
+                send_data feed_message.serialize_to_string, filename: 'tripUpdates'
               rescue => ex
                 Rails.logger.warn ex
-              ensure
-                feed_file.close
               end
-
-
             }
             format.json { render json: feed_message }
           else
