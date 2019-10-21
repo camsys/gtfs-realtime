@@ -456,7 +456,7 @@ module GTFS
 
         entities = @trip_updates.collect do |trip_update_row|
 
-          stop_time_updates = @stop_time_updates.where(trip_update_id: trip_update_row.id).collect do |stop_time_update|
+          stop_time_updates = @stop_time_updates.select{|s| s.trip_update_id == trip_update_row.id}.collect do |stop_time_update|
             stop_time_update_from_database_attributes(stop_time_update)
           end
           trip_update = trip_update_from_database_attributes(trip_update_row)
