@@ -417,6 +417,8 @@ module GTFS
 
         if timestamp.nil?
           feeds = GTFS::Realtime::Feed.from_partition(@gtfs_realtime_configuration.id)
+        elsif timestamp == timestamp.at_beginning_of_week && (GTFS::Realtime::Feed.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{(timestamp.at_beginning_of_week - 1.week).strftime('%Y%m%d')}")
+          feeds = GTFS::Realtime::Feed.from_partition(@gtfs_realtime_configuration.id, timestamp.at_beginning_of_week-1.week)
         elsif GTFS::Realtime::Feed.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{timestamp.at_beginning_of_week.strftime('%Y%m%d')}"
           feeds = GTFS::Realtime::Feed.from_partition(@gtfs_realtime_configuration.id, timestamp.at_beginning_of_week).where("feed_timestamp <= ?", timestamp)
         end
@@ -430,6 +432,10 @@ module GTFS
           timestamp = feeds.maximum(:feed_timestamp)
         else
           return {feed_message: nil, errors: ['Date not in database']}
+        end
+
+        if timestamp.nil?
+          return {feed_message: nil, errors: ['Date/Search not in database']}
         end
 
         if GTFS::Realtime::TripUpdate.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{timestamp.at_beginning_of_week.strftime('%Y%m%d')}"
