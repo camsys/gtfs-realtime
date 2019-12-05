@@ -66,31 +66,38 @@ module GTFS
 
           pre_process('TripUpdate', current_feed_time, feed_file)
 
+          if Date.today == Date.today.at_beginning_of_week
+            partition_dates = [Date.today.at_beginning_of_week, Date.today.at_beginning_of_week-1.week]
+          else
+            partition_dates = Date.today.at_beginning_of_week
+          end
 
-         if GTFS::Realtime::Feed.from_partition(@gtfs_realtime_configuration.id, Date.today.at_beginning_of_week).where(class_name: 'TripUpdate', feed_status_type_id: GTFS::Realtime::FeedStatusType.find_by(name: 'Running').id).count == 0
-           GTFS::Realtime::Feed.from_partition(@gtfs_realtime_configuration.id, Date.today.at_beginning_of_week).order(:feed_timestamp).where(class_name: 'TripUpdate', feed_status_type_id: nil).limit([100/@gtfs_realtime_configuration.interval_seconds,2].max).each do |trip_updates_feed|
-             start_time = Time.now
+          partition_dates.each do |partition_date|
+           if GTFS::Realtime::Feed.from_partition(@gtfs_realtime_configuration.id, partition_date).where(class_name: 'TripUpdate', feed_status_type_id: GTFS::Realtime::FeedStatusType.find_by(name: 'Running').id).count == 0
+             GTFS::Realtime::Feed.from_partition(@gtfs_realtime_configuration.id, partition_date).order(:feed_timestamp).where(class_name: 'TripUpdate', feed_status_type_id: nil).limit([100/@gtfs_realtime_configuration.interval_seconds,2].max).each do |trip_updates_feed|
+               start_time = Time.now
 
-             Rails.logger.info "Starting GTFS-RT refresh for TripUpdate #{@gtfs_realtime_configuration.name} at #{start_time}."
-             Crono.logger.info "Starting GTFS-RT refresh for TripUpdate #{@gtfs_realtime_configuration.name} at #{start_time} in Crono." if Crono.logger
+               Rails.logger.info "Starting GTFS-RT refresh for TripUpdate #{@gtfs_realtime_configuration.name} at #{start_time}."
+               Crono.logger.info "Starting GTFS-RT refresh for TripUpdate #{@gtfs_realtime_configuration.name} at #{start_time} in Crono." if Crono.logger
 
-             trip_updates_feed.update_columns(feed_status_type_id: GTFS::Realtime::FeedStatusType.find_by(name: 'Running').id)
-             status = nil
-             GTFS::Realtime::Model.transaction do
-               begin
-                 status = process_trip_updates(trip_updates_feed)
-               rescue => ex
-                 errored = true
-                 Rails.logger.error ex
-                 Crono.logger.error ex if Crono.logger
-               end
-             end # end of ActiveRecord transaction
+               trip_updates_feed.update_columns(feed_status_type_id: GTFS::Realtime::FeedStatusType.find_by(name: 'Running').id)
+               status = nil
+               GTFS::Realtime::Model.transaction do
+                 begin
+                   status = process_trip_updates(trip_updates_feed)
+                 rescue => ex
+                   errored = true
+                   Rails.logger.error ex
+                   Crono.logger.error ex if Crono.logger
+                 end
+               end # end of ActiveRecord transaction
 
-             trip_updates_feed.update_columns(feed_status_type_id: GTFS::Realtime::FeedStatusType.find_by(name: (status || 'Errored')).id)
+               trip_updates_feed.update_columns(feed_status_type_id: GTFS::Realtime::FeedStatusType.find_by(name: (status || 'Errored')).id)
 
-             @put_metric_data_service.put_metric("#{@gtfs_realtime_configuration.name}:Runtime", 'Seconds',Time.now - start_time)
-             Rails.logger.info "Finished GTFS-RT refresh for TripUpdate #{@gtfs_realtime_configuration.name} at #{Time.now}. Started #{start_time} and took #{Time.now - start_time} seconds in Crono."
-             Crono.logger.info "Finished GTFS-RT refresh for TripUpdate #{@gtfs_realtime_configuration.name} at #{Time.now}. Started #{start_time} and took #{Time.now - start_time} seconds in Crono." if Crono.logger
+               @put_metric_data_service.put_metric("#{@gtfs_realtime_configuration.name}:Runtime", 'Seconds',Time.now - start_time)
+               Rails.logger.info "Finished GTFS-RT refresh for TripUpdate #{@gtfs_realtime_configuration.name} at #{Time.now}. Started #{start_time} and took #{Time.now - start_time} seconds in Crono."
+               Crono.logger.info "Finished GTFS-RT refresh for TripUpdate #{@gtfs_realtime_configuration.name} at #{Time.now}. Started #{start_time} and took #{Time.now - start_time} seconds in Crono." if Crono.logger
+             end
            end
           end
         end
@@ -103,7 +110,7 @@ module GTFS
           GTFS::Realtime::Model.transaction do
             begin
               process_vehicle_positions
-            rescue
+            rescue => ex
               errored = true
               Rails.logger.error ex
               Crono.logger.error ex if Crono.logger
@@ -122,7 +129,7 @@ module GTFS
           GTFS::Realtime::Model.transaction do
             begin
               process_service_alerts
-            rescue
+            rescue => ex
               errored = true
               Rails.logger.error ex
               Crono.logger.error ex if Crono.logger
