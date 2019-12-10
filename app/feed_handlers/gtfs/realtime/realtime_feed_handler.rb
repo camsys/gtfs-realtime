@@ -69,7 +69,7 @@ module GTFS
           if Date.today == Date.today.at_beginning_of_week
             partition_dates = [Date.today.at_beginning_of_week, Date.today.at_beginning_of_week-1.week]
           else
-            partition_dates = Date.today.at_beginning_of_week
+            partition_dates = [Date.today.at_beginning_of_week]
           end
 
           partition_dates.each do |partition_date|
