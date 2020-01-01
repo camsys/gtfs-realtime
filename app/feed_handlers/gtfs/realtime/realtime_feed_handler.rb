@@ -66,10 +66,15 @@ module GTFS
 
           pre_process('TripUpdate', current_feed_time, feed_file)
 
-          if current_feed_time.to_date == current_feed_time.to_date.at_beginning_of_week
-            partition_dates = [current_feed_time.to_date.at_beginning_of_week, current_feed_time.to_date.at_beginning_of_week-1.week]
+          if current_feed_time
+            if current_feed_time.to_date == current_feed_time.to_date.at_beginning_of_week
+              partition_dates = [current_feed_time.to_date.at_beginning_of_week, current_feed_time.to_date.at_beginning_of_week-1.week]
+            else
+              partition_dates = [current_feed_time.to_date.at_beginning_of_week]
+            end
           else
-            partition_dates = [current_feed_time.to_date.at_beginning_of_week]
+            partition_dates = []
+            errored = true
           end
 
           partition_dates.each do |partition_date|
