@@ -112,14 +112,12 @@ module GTFS
 
           Rails.logger.info "Starting GTFS-RT refresh for VehiclePosition #{@gtfs_realtime_configuration.name} at #{start_time}."
           Crono.logger.info "Starting GTFS-RT refresh for VehiclePosition #{@gtfs_realtime_configuration.name} at #{start_time} in Crono." if Crono.logger
-          GTFS::Realtime::Model.transaction do
-            begin
-              process_vehicle_positions
-            rescue => ex
-              errored = true
-              Rails.logger.error ex
-              Crono.logger.error ex if Crono.logger
-            end
+          begin
+            process_vehicle_positions
+          rescue => ex
+            errored = true
+            Rails.logger.error ex
+            Crono.logger.error ex if Crono.logger
           end
           Rails.logger.info "Finished GTFS-RT refresh for VehiclePosition #{@gtfs_realtime_configuration.name} at #{Time.now}. Started #{start_time} and took #{Time.now - start_time} seconds in Crono."
           Crono.logger.info "Finished GTFS-RT refresh for VehiclePosition #{@gtfs_realtime_configuration.name} at #{Time.now}. Started #{start_time} and took #{Time.now - start_time} seconds in Crono." if Crono.logger
@@ -131,14 +129,12 @@ module GTFS
           Rails.logger.info "Starting GTFS-RT refresh for ServiceAlert #{@gtfs_realtime_configuration.name} at #{start_time}."
           Crono.logger.info "Starting GTFS-RT refresh for ServiceAlert #{@gtfs_realtime_configuration.name} at #{start_time} in Crono." if Crono.logger
 
-          GTFS::Realtime::Model.transaction do
-            begin
-              process_service_alerts
-            rescue => ex
-              errored = true
-              Rails.logger.error ex
-              Crono.logger.error ex if Crono.logger
-            end
+          begin
+            process_service_alerts
+          rescue => ex
+            errored = true
+            Rails.logger.error ex
+            Crono.logger.error ex if Crono.logger
           end
           Rails.logger.info "Finished GTFS-RT refresh for ServiceAlert #{@gtfs_realtime_configuration.name} at #{Time.now}. Started #{start_time} and took #{Time.now - start_time} seconds in Crono."
           Crono.logger.info "Finished GTFS-RT refresh for ServiceAlert #{@gtfs_realtime_configuration.name} at #{Time.now}. Started #{start_time} and took #{Time.now - start_time} seconds in Crono." if Crono.logger
@@ -342,37 +338,39 @@ module GTFS
 
         pre_process('VehiclePosition', current_feed_time, feed_file,!vehicle_positions.empty?)
 
-        # this data is partitioned but not checked for duplicates currently
-        GTFS::Realtime::VehiclePosition.create_many(
-            vehicle_positions.collect do |vehicle|
-              {
-                  configuration_id: @gtfs_realtime_configuration.id,
-                  interval_seconds: 0,
-                  id: vehicle.id.to_s.strip,
-                  vehicle_id: vehicle.vehicle.vehicle.id.to_s.strip,
-                  vehicle_label: vehicle.vehicle.vehicle.label.to_s.strip,
-                  license_plate: vehicle.vehicle.vehicle.license_plate.to_s.strip,
-                  trip_id: vehicle.vehicle.trip.trip_id.to_s.strip,
-                  route_id: vehicle.vehicle.trip.route_id.to_s.strip,
-                  direction_id: vehicle.vehicle.trip.direction_id,
-                  start_time: vehicle.vehicle.trip.start_time.to_s.strip,
-                  start_date: vehicle.vehicle.trip.start_date.to_s.strip,
-                  schedule_relationship: vehicle.vehicle.trip.schedule_relationship,
-                  current_stop_sequence: vehicle.vehicle.current_stop_sequence,
-                  current_status: vehicle.vehicle.current_status,
-                  congestion_level: vehicle.vehicle.congestion_level,
-                  occupancy_status: vehicle.vehicle.occupancy_status,
-                  stop_id: vehicle.vehicle.stop_id.to_s.strip,
-                  latitude: vehicle.vehicle.position.try(:latitude).try(:to_f),
-                  longitude: vehicle.vehicle.position.try(:longitude).try(:to_f),
-                  bearing: vehicle.vehicle.position.try(:bearing).try(:to_f),
-                  odometer: vehicle.vehicle.position.try(:odometer).try(:to_f),
-                  speed: vehicle.vehicle.position.try(:speed).try(:to_f),
-                  timestamp: Time.at(vehicle.vehicle.timestamp),
-                  feed_timestamp: current_feed_time
-              }
-            end
-        )
+        GTFS::Realtime::Model.transaction do
+          # this data is partitioned but not checked for duplicates currently
+          GTFS::Realtime::VehiclePosition.create_many(
+              vehicle_positions.collect do |vehicle|
+                {
+                    configuration_id: @gtfs_realtime_configuration.id,
+                    interval_seconds: 0,
+                    id: vehicle.id.to_s.strip,
+                    vehicle_id: vehicle.vehicle.vehicle.id.to_s.strip,
+                    vehicle_label: vehicle.vehicle.vehicle.label.to_s.strip,
+                    license_plate: vehicle.vehicle.vehicle.license_plate.to_s.strip,
+                    trip_id: vehicle.vehicle.trip.trip_id.to_s.strip,
+                    route_id: vehicle.vehicle.trip.route_id.to_s.strip,
+                    direction_id: vehicle.vehicle.trip.direction_id,
+                    start_time: vehicle.vehicle.trip.start_time.to_s.strip,
+                    start_date: vehicle.vehicle.trip.start_date.to_s.strip,
+                    schedule_relationship: vehicle.vehicle.trip.schedule_relationship,
+                    current_stop_sequence: vehicle.vehicle.current_stop_sequence,
+                    current_status: vehicle.vehicle.current_status,
+                    congestion_level: vehicle.vehicle.congestion_level,
+                    occupancy_status: vehicle.vehicle.occupancy_status,
+                    stop_id: vehicle.vehicle.stop_id.to_s.strip,
+                    latitude: vehicle.vehicle.position.try(:latitude).try(:to_f),
+                    longitude: vehicle.vehicle.position.try(:longitude).try(:to_f),
+                    bearing: vehicle.vehicle.position.try(:bearing).try(:to_f),
+                    odometer: vehicle.vehicle.position.try(:odometer).try(:to_f),
+                    speed: vehicle.vehicle.position.try(:speed).try(:to_f),
+                    timestamp: Time.at(vehicle.vehicle.timestamp),
+                    feed_timestamp: current_feed_time
+                }
+              end
+          )
+        end
       end
 
       def process_service_alerts
@@ -419,7 +417,9 @@ module GTFS
         end
 
         # this data is partitioned but not checked for duplicates currently
-        GTFS::Realtime::ServiceAlert.create_many(new_alerts)
+        GTFS::Realtime::Model.transaction do
+          GTFS::Realtime::ServiceAlert.create_many(new_alerts)
+        end
       end
 
 
