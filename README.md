@@ -15,10 +15,19 @@ gem 'gtfs-realtime', path: '../gtfs-realtime'
 gem 'crono'
 ```
 
+Run migrations:
+```ruby
+rake gtfs_realtime:run_migrations
+```
+
 Add your feeds:
 ```ruby
 GTFS::Realtime.configure([{name: 'feed_name', trip_updates_feed: 'xxx', vehicle_positions_feed: 'xxx', service_alerts_feed: 'xxx', interval_seconds: '###'}])
 ```
+
+Running feed handler:
+You need to require the GTFS-RT objects yourself in the environment as the feed handler doesn't assume this so you can parse customizations. Example:
+ ```require 'gtfs-realtime-new.pb.rb'```
 
 where you pass to `configure` an array of hashes for all your feeds
 * feed_name - some identifier of this feed such as "Subway", "Buses", "Elevators"

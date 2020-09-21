@@ -16,6 +16,7 @@ module GTFS
         # feed table
         if current_feed_time
           GTFS::Realtime::Feed.create_new_partition_tables([[@gtfs_realtime_configuration.id, current_feed_time.at_beginning_of_week]]) unless GTFS::Realtime::Feed.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
+          GTFS::Realtime::Feed.create_new_partition_tables([[@gtfs_realtime_configuration.id, current_feed_time.at_beginning_of_week-1.week]]) unless GTFS::Realtime::Feed.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{(current_feed_time.at_beginning_of_week-1.week).strftime('%Y%m%d')}"
 
           klass = "GTFS::Realtime::#{class_name}".constantize
           klass.create_new_partition_tables([[@gtfs_realtime_configuration.id, current_feed_time.at_beginning_of_week]]) unless klass.partition_tables.include? "p#{@gtfs_realtime_configuration.id}_#{current_feed_time.at_beginning_of_week.strftime('%Y%m%d')}"
@@ -57,7 +58,9 @@ module GTFS
 
         if @gtfs_realtime_configuration.trip_updates_feed.present?
 
-          feed_file = get_feed_file(@gtfs_realtime_configuration.trip_updates_feed)
+          api_key_param, api_key = @gtfs_realtime_configuration.trip_updates_api_key.split(':') unless @gtfs_realtime_configuration.trip_updates_api_key.blank?
+
+          feed_file = get_feed_file(@gtfs_realtime_configuration.trip_updates_feed, api_key_param, api_key)
           feed = get_feed(feed_file)
           trip_updates_header = feed.try(:header)
 
@@ -327,7 +330,8 @@ module GTFS
       end
 
       def process_vehicle_positions
-        feed_file = get_feed_file(@gtfs_realtime_configuration.vehicle_positions_feed)
+        api_key_param, api_key = @gtfs_realtime_configuration.vehicle_positions_api_key.split(':') unless @gtfs_realtime_configuration.vehicle_positions_api_key.blank?
+        feed_file = get_feed_file(@gtfs_realtime_configuration.vehicle_positions_feed, api_key_param, api_key)
         feed = get_feed(feed_file)
         vehicle_positions = (feed.try(:entity) || []).select{|x| x.vehicle.present?}
         vehicle_positions_header = feed.try(:header)
@@ -526,16 +530,23 @@ module GTFS
 
       private
 
-      def get_feed_file(path)
+      def get_feed_file(path, api_key_param=nil, api_key=nil)
         return nil if path.nil?
 
         if File.exists?(path)
           data = File.open(path, 'r'){|f| f.read}
+          return data
         else
-          data = Net::HTTP.get(URI.parse(path))
-        end
+          uri = URI.parse(path)
+          request = Net::HTTP::Get.new(uri.request_uri)
 
-        data
+          request[api_key_param] = api_key unless api_key.nil?
+
+          data = Net::HTTP.start(uri.host, uri.port, :use_ssl => uri.scheme == 'https') do |http|
+            http.request(request)
+          end
+          return data.body
+        end
       end
 
 
