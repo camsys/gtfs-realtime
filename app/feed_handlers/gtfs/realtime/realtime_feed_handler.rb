@@ -542,9 +542,9 @@ module GTFS
       def get_feed(data)
         begin
           return TransitRealtime::FeedMessage.parse(data)
-        rescue
-          Rails.logger.info "Could not parse GTFS-RT file"
-          Crono.logger.info "Could not parse GTFS-RT file" if Crono.logger
+        rescue Exception => e
+          Rails.logger.info "Could not parse GTFS-RT file #{e.inspect}"
+          Crono.logger.info "Could not parse GTFS-RT file #{e.inspect}" if Crono.logger
 
           return nil
         end
